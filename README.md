@@ -20,6 +20,8 @@ One code sample is worth a thousand words in a README:
   
 (swap! db update-in [:users "1234" :address] merge {:street "Gran Via" :postal-code "08010"})  
 (get-in @db [:users "1234" :address :street])
+
+; => "Gran Via"
 ```
 
 
