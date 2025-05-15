@@ -12,6 +12,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Install Clojure CLI
+      run: |
+        sudo apt update
+        sudo apt install -y curl gnupg
+        curl -L -O https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh
+        chmod +x linux-install.sh
+        sudo ./linux-install.sh
+
     - uses: actions/checkout@v4
     - name: Install dependencies
       run: clj -P
