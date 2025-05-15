@@ -1,3 +1,10 @@
 {:paths ["src" "test"]
- :deps {io.github.radarroark/xitdb {:mvn/version "0.10.0"}}}
+  :deps {io.github.radarroark/xitdb {:mvn/version "0.10.0"}}
+
+  :aliases
+  {:test
+   {:extra-deps {io.github.cognitect-labs/test-runner
+                 {:git/url "https://github.com/cognitect-labs/test-runner.git"
+                  :sha "7284cda41fb9edc0f3bc6b6185cfb7138fc8a023"}}
+    :main-opts ["-m" "cognitect.test-runner"]}}}
 
