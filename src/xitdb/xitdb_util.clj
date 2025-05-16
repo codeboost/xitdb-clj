@@ -258,12 +258,6 @@
       (update-map-item-count! whm inc))
     whm))
 
-(defn set-assoc-value!
-  [^WriteHashMap whm v]
-  (let [hash-code (if v (.hashCode v) 0)]
-    ;; TODO: Use .putIfEmpty for sets
-    (map-assoc-value! whm hash-code v)))
-
 (defn map-dissoc-key!
   [^WriteHashMap whm k]
   (when (contains? hidden-keys k)
@@ -357,6 +351,21 @@
         :else
         (.append write-list (primitive-for v))))
     (.-cursor write-list)))
+
+;; ----------
+
+(defn set-assoc-value!
+  [^WriteHashMap whm v]
+  (let [hash-code (if v (.hashCode v) 0)]
+    (let [cursor (.putCursor whm (db-key hash-code))
+          new? (= (-> cursor .slot .tag) Tag/NONE)]
+      (when new?
+        ;; Only write value when the hashCode key doesn't exist
+        (.write cursor (v->slot! cursor v))
+        (update-map-item-count! whm inc))
+      whm)))
+
+
 
 (defn ^WriteHashMap mark-as-set! [^WriteHashMap whm]
   (let [is-set-key (db-key (internal-keys :is-set?))]
