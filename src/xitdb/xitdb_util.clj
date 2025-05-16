@@ -33,7 +33,8 @@
 
 ;; map of logical key -> key stored in the HashMap
 (def internal-keys
-  {:count :%xitdb__count})
+  {:count :%xitdb__count
+   :is-set? :%xitdb_set})
 
 ;; HashMap keys which are used internally and should be hidden from user
 (def hidden-keys (set (vals internal-keys)))
@@ -41,6 +42,7 @@
 (declare ^WriteCursor map->WriteHashMapCursor!)
 (declare ^WriteCursor coll->ArrayListCursor!)
 (declare ^WriteCursor list->LinkedArrayListCursor!)
+(declare ^WriteCursor set->WriteCursor!)
 
 (def ^:dynamic *debug?* false)
 
@@ -59,6 +61,7 @@
       (str (namespace key) "/" (name key))
       (name key))
     key))
+
 
 (defn ^Database$Bytes database-bytes
   ([^String s]
@@ -142,6 +145,12 @@
     (do
       (.write cursor nil)
       (.slot (coll->ArrayListCursor! cursor v)))
+
+    (set? v)
+    (do
+      (.write cursor nil)
+      (.slot (set->WriteCursor! cursor v)))
+
     :else
     (primitive-for v)))
 
@@ -214,7 +223,7 @@
     (primitive-for k)))
 
 ;; Enable storing the count of items in the hashmap under an internal key :count
-(def ^:dynamic *enable-map-fast-count?* false)
+(def ^:dynamic *enable-map-fast-count?* true)
 
 (defn- update-map-item-count!
   "Update the internal key `:count` by applying `f` to the current value.
@@ -236,7 +245,8 @@
 
 (defn map-assoc-value!
   "Associates a key-value pair in a WriteHashMap.
-  Converts the key to a string and the value to an appropriate XitDB representation."
+  Converts the key to a string and the value to an appropriate XitDB representation.
+  throws when trying to associate a internal key."
   [^WriteHashMap whm k v]
   (when (contains? hidden-keys k)
     (throw (IllegalArgumentException. (str "Cannot assoc key. " k ". It is reserved for internal use."))))
@@ -248,6 +258,12 @@
       (update-map-item-count! whm inc))
     whm))
 
+(defn set-assoc-value!
+  [^WriteHashMap whm v]
+  (let [hash-code (if v (.hashCode v) 0)]
+    ;; TODO: Use .putIfEmpty for sets
+    (map-assoc-value! whm hash-code v)))
+
 (defn map-dissoc-key!
   [^WriteHashMap whm k]
   (when (contains? hidden-keys k)
@@ -256,12 +272,13 @@
   (when (.remove whm (db-key k))
     (update-map-item-count! whm dec)))
 
-(defn map-empty! [^WriteHashMap whm]
+(defn ^WriteHashMap map-empty! [^WriteHashMap whm]
   (let [^WriteCursor cursor (-> whm .cursor)]
-    (.write cursor (v->slot! cursor {}))))
+    (.write cursor (v->slot! cursor {}))
+    whm))
 
 (defn map-contains-key? [^WriteHashMap whm key]
-  (not (nil? (.getCursor whm (keyname key)))))
+  (not (nil? (.getCursor whm (db-key key)))))
 
 (defn map-item-count-iterated
   "Returns the number of keys in the map by iterating.
@@ -283,7 +300,7 @@
     (map-item-count-iterated rhm)))
 
 (defn map-read-cursor [^ReadHashMap rhm key]
-  (.getCursor rhm (keyname key)))
+  (.getCursor rhm (db-key key)))
 
 (defn map-write-cursor [^WriteHashMap whm key]
   (.putCursor whm (db-key key)))
@@ -340,6 +357,32 @@
         :else
         (.append write-list (primitive-for v))))
     (.-cursor write-list)))
+
+(defn ^WriteHashMap mark-as-set! [^WriteHashMap whm]
+  (let [is-set-key (db-key (internal-keys :is-set?))]
+    (-> whm
+        (.putCursor is-set-key)
+        (.write (primitive-for 1)))
+    whm))
+
+(defn ^WriteHashMap init-hash-set! [^WriteCursor cursor]
+  (let [whm (WriteHashMap. cursor)]
+    (mark-as-set! whm)
+    whm))
+
+(defn ^WriteHashMap set-empty! [^WriteHashMap whm]
+  (map-empty! whm)
+  (init-hash-set! (.cursor whm))
+  whm)
+
+(defn ^WriteCursor set->WriteCursor!
+  "Creates a hash-map and associates the internal key :is-set? to 1.
+  Map is keyed by the .hashCode of the value, valued by the value :)"
+  [^WriteCursor cursor s]
+  (let [whm (init-hash-set! cursor)]
+    (doseq [v s]
+      (set-assoc-value! whm  v))
+    (.-cursor whm)))
 
 (defn ^WriteCursor map->WriteHashMapCursor!
   "Writes a Clojure map to a XitDB WriteHashMap.

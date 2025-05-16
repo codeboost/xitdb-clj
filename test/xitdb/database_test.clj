@@ -1,8 +1,7 @@
 (ns xitdb.database-test
   (:require
     [clojure.test :refer :all]
-    [xitdb.test-utils :as tu :refer [with-db]])
-  (:import (clojure.lang IEditableCollection)))
+    [xitdb.test-utils :as tu :refer [with-db]]))
 
 (deftest DatabaseTest
   (with-db [db (tu/test-db)]

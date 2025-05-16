@@ -4,9 +4,22 @@
     [xitdb.common :as common]
     [xitdb.hash-map :as xhash-map]
     [xitdb.linked-list :as xlinked-list]
+    [xitdb.hash-set :as xhash-set]
     [xitdb.xitdb-util :as util])
   (:import
-    (io.github.radarroark.xitdb ReadCursor Slot Tag WriteCursor)))
+    (io.github.radarroark.xitdb ReadCursor ReadHashMap Slot Tag WriteCursor)))
+
+(defn xhash-map-or-set [^ReadCursor cursor]
+  (let [hm (ReadHashMap. cursor)]
+    (if (.getCursor hm (util/db-key (util/internal-keys :is-set?)))
+      (xhash-set/xhash-set cursor)
+      (xhash-map/xhash-map cursor))))
+
+(defn x-write-map-or-set [^ReadCursor cursor]
+  (let [hm (ReadHashMap. cursor)]
+    (if (.getCursor hm (util/db-key (util/internal-keys :is-set?)))
+      (xhash-set/xwrite-hash-set cursor)
+      (xhash-map/xwrite-hash-map cursor))))
 
 
 (defn read-from-cursor [^ReadCursor cursor for-writing?]
@@ -26,9 +39,10 @@
       (.readFloat cursor)
 
       (= value-tag Tag/HASH_MAP)
+
       (if for-writing?
-        (xhash-map/xwrite-hash-map cursor)
-        (xhash-map/xhash-map cursor))
+        (x-write-map-or-set cursor)
+        (xhash-map-or-set cursor))
 
       (= value-tag Tag/ARRAY_LIST)
       (if for-writing?
