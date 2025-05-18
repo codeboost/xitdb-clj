@@ -223,7 +223,7 @@
     (primitive-for k)))
 
 ;; Enable storing the count of items in the hashmap under an internal key :count
-(def ^:dynamic *enable-map-fast-count?* true)
+(def ^:dynamic *enable-map-fast-count?* false)
 
 (defn- update-map-item-count!
   "Update the internal key `:count` by applying `f` to the current value.

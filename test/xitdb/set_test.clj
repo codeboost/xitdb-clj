@@ -15,7 +15,8 @@
       (swap! db disj 2 3)
 
       (is (= #{1 4 6 5} @db))
-      (is (= 4 (count @db)))))
+      (is (= 4 (count @db)))
+      (is (tu/db-equal-to-atom? db))))
 
   (testing "Basic operations"
     (with-db [db (tu/test-db)]
@@ -39,7 +40,8 @@
       (testing "Emptying"
         (swap! db empty)
         (is (= #{} @db))
-        (is (= 0 (count @db)))))))
+        (is (= 0 (count @db)))
+        (is (tu/db-equal-to-atom? db))))))
 
 (deftest DataTypes
   (testing "Supports nested types"
@@ -51,7 +53,8 @@
       (testing "Adding a set to the set"
         (swap! db conj #{1 [3 4] {:new :map}})
         (is (= #{1 '(7 89) [1 2 3 4] #{1 [3 4] {:new :map}} {:foo :bar}}
-               @db))))))
+               @db)))
+      (is (tu/db-equal-to-atom? db)))))
 
 
 (deftest SetOperations
@@ -59,13 +62,15 @@
     (with-db [db (tu/test-db)]
       (reset! db #{1 2 3 4 5})
       (swap! db set/union #{4 5 8})
-      (is (= #{1 4 3 2 5 8} @db))))
+      (is (= #{1 4 3 2 5 8} @db))
+      (is (tu/db-equal-to-atom? db))))
 
   (testing "Intersection"
     (with-db [db (tu/test-db)]
       (reset! db #{1 2 3 4 5})
       (swap! db set/intersection #{4 5 8})
-      (is (= #{4 5} @db))))
+      (is (= #{4 5} @db))
+      (is (tu/db-equal-to-atom? db))))
 
   (testing "Union of two dbs"
     (let [db1 (tu/test-memory-db-raw)
