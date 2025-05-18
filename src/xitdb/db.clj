@@ -13,13 +13,15 @@
   (WriteArrayList. (.rootCursor db)))
 
 (defn append-context [^WriteArrayList history fn]
-  (.appendContext
-    history
-    (.getSlot history -1)
-    (reify Database$ContextFunction
-      (^void run [_ ^WriteCursor cursor]
-        (fn cursor)
-        nil))))
+  (let [history-index (.count history)]
+    (.appendContext
+      history
+      (.getSlot history -1)
+      (reify Database$ContextFunction
+        (^void run [_ ^WriteCursor cursor]
+          (fn cursor)
+          nil)))
+    history-index))
 
 (defn xitdb-reset! [^WriteArrayList history new-value]
   (.appendContext
@@ -37,13 +39,27 @@
         hasher (Hasher. (MessageDigest/getInstance "SHA-1"))]
     (Database. core hasher)))
 
-
-(defn xitdb-swap! [db f & args]
+(defn xitdb-swap!
+  "Returns history index."
+  [db f & args]
   (let [history (db-history db)]
     (append-context history (fn [^WriteCursor cursor]
                               (let [obj (xtypes/read-from-cursor cursor true)]
                                 (let [retval (apply f (concat [obj] args))]
                                   (.write cursor (xtypes/slot-for-value! cursor retval))))))))
+
+(defn xitdb-swap-and-call-watch!
+  "Performs the 'swap!' operation and calls the watch function (if any)
+  with [history-index current-value-of-database (@db)].
+  Returns the current value of the db (deref db).
+  The watch function *must not* call swap! on the database."
+  [xitdb f & args]
+  (let [index (apply xitdb-swap! (into [(-> xitdb .db) f] args))
+        watch-fn (-> xitdb .watch)
+        derefed (deref xitdb)]
+    (when watch-fn
+      (watch-fn index derefed))
+    derefed)
 
 (defn- close-db-internal! [^Database db]
   (let [core (-> db .-core)]
@@ -60,7 +76,7 @@
 (defprotocol ICloseDB
   (close-db! [this]))
 
-(deftype XITDBDatabase [db]
+(deftype XITDBDatabase [db watch]
   ICloseDB
   (close-db! [this]
     (close-db-internal! db))
@@ -81,24 +97,20 @@
       (xitdb-reset! history new-value)
       new-value))
   (swap [this f]
-    (xitdb-swap! db f)
-    #_(deref this))
+    (xitdb-swap-and-call-watch! this f))
 
   (swap [this f a]
-    (xitdb-swap! db f a)
-    #_(deref this))
+    (xitdb-swap-and-call-watch! this f a))
 
   (swap [this f a1 a2]
-    (xitdb-swap! db f a1 a2)
-    #_(deref this))
+    (xitdb-swap-and-call-watch! this f a1 a2))
 
   (swap [this f x y args]
-    (apply xitdb-swap! (concat [db f x y] args))
-    #_(deref this)))
+    (apply xitdb-swap-and-call-watch! (concat [this f x y] args))))
 
 
-(defn xit-db [filename]
-  (->XITDBDatabase (open-database filename)))
+(defn xit-db [filename & [watch]]
+  (->XITDBDatabase (open-database filename) watch))
 
 
 
