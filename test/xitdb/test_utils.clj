@@ -14,9 +14,9 @@
   (-db-equal-to-atom? [this]
     (= (types/materialize @db) @test-atom))
 
-  xdb/ICloseDB
-  (close-db! [this]
-    (xdb/close-db! db))
+  java.io.Closeable
+  (close [this]
+    (.close db))
 
   clojure.lang.IDeref
   (deref [_]
@@ -77,5 +77,5 @@
        (try
          ~@body
          (finally
-           (xdb/close-db! ~db-name))))))
+           (.close ~db-name))))))
 
