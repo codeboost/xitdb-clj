@@ -49,6 +49,8 @@
                                 (let [retval (apply f (concat [obj] args))]
                                   (.write cursor (xtypes/slot-for-value! cursor retval))))))))
 
+(defonce ^:dynamic *return-history?* false)
+
 (defn xitdb-swap-and-call-watch!
   "Performs the 'swap!' operation with locking and calls the watch function (if any)
   with [history-index current-value-of-database (@db)].
@@ -63,13 +65,12 @@
       (throw (IllegalStateException. "swap! should not be called from the swap! function or watch.")))
     (try
       (.lock lock)
-      (let [watch-fn (-> xitdb .watch)
-            old-value (when watch-fn (deref xitdb))
+      (let [old-value (when *return-history?* (deref xitdb))
             index (apply xitdb-swap! (into [(-> xitdb .rwdb) f] args))
             new-value (deref xitdb)]
-        (when watch-fn
-          (watch-fn index old-value new-value))
-        new-value)
+        (if *return-history?*
+          [index old-value new-value]
+          new-value))
       (finally
         (.unlock lock)))))
 
