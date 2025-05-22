@@ -4,8 +4,8 @@
     [xitdb.xitdb-util :as util])
   (:import
     [io.github.radarroark.xitdb
-     CoreFile CoreMemory Hasher Database Database$ContextFunction
-     RandomAccessMemory ReadArrayList WriteArrayList WriteHashMap Tag WriteCursor]
+     CoreBufferedFile CoreFile CoreMemory Hasher Database Database$ContextFunction
+     RandomAccessBufferedFile RandomAccessMemory ReadArrayList WriteArrayList WriteHashMap Tag WriteCursor]
     [java.io File RandomAccessFile]
     [java.security MessageDigest]
     [java.util.concurrent.locks ReentrantLock]))
@@ -43,7 +43,7 @@
   [filename ^String open-mode]
   (let [core   (if (= filename :memory)
                  (CoreMemory. (RandomAccessMemory.))
-                 (CoreFile. (RandomAccessFile. (File. ^String filename) open-mode)))
+                 (CoreBufferedFile. (RandomAccessBufferedFile. (File. ^String filename) open-mode)))
         hasher (Hasher. (MessageDigest/getInstance "SHA-1"))]
     (Database. core hasher)))
 
