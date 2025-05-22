@@ -81,5 +81,12 @@
       (is (= {:sweets #{:regular-candy :chupa-chups, :mochi :tiramisu}}
              (tu/materialize @db1))))))
 
+(deftest nil-test
+  (with-db [db (tu/test-db)]
+    (reset! db {:sweets #{nil :mochi}})
+    (testing "Handles nil correctly"
+      (let [sweets (:sweets @db)]
+        (is (true? (contains? sweets nil)))))))
+
 
 
