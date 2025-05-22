@@ -10,63 +10,69 @@
     [java.security MessageDigest]
     [java.util.concurrent.locks ReentrantLock]))
 
+
+;; When set to true,
+;; swap! will return [current-history-index old-dbval new-dbval]
+(defonce ^:dynamic *return-history?* false)
+
+
 (defn ^WriteArrayList db-history [^Database db]
   (WriteArrayList. (.rootCursor db)))
 
-(defn append-context [^WriteArrayList history fn]
+(defn append-context!
+  "Appends a new history context and calls `fn` with a write cursor.
+  Returns the new history index."
+  [^WriteArrayList history slot fn]
   (.appendContext
     history
-    (.getSlot history -1)
+    slot
     (reify Database$ContextFunction
       (^void run [_ ^WriteCursor cursor]
         (fn cursor)
         nil)))
   (.count history))
 
-(defn xitdb-reset! [^WriteArrayList history new-value]
-  (.appendContext
-    history
-    nil
-    (reify Database$ContextFunction
-      (^void run [_ ^WriteCursor cursor]
-        (util/v->slot! cursor new-value)
-        nil))))
+(defn xitdb-reset!
+  "Sets the value of the database to `new-value`.
+  Returns new history index."
+  [^WriteArrayList history new-value]
+  (append-context! history nil (fn [^WriteCursor cursor]
+                                 (util/v->slot! cursor new-value))))
 
 (defn open-database
   [filename ^String open-mode]
-  (let [core (if (= filename :memory)
-               (CoreMemory. (RandomAccessMemory.))
-               (CoreFile. (RandomAccessFile. (File. ^String filename) open-mode)))
+  (let [core   (if (= filename :memory)
+                 (CoreMemory. (RandomAccessMemory.))
+                 (CoreFile. (RandomAccessFile. (File. ^String filename) open-mode)))
         hasher (Hasher. (MessageDigest/getInstance "SHA-1"))]
     (Database. core hasher)))
 
 (defn xitdb-swap!
   "Returns history index."
   [db f & args]
-  (let [history (db-history db)]
-    (append-context history (fn [^WriteCursor cursor]
-                              (let [obj (xtypes/read-from-cursor cursor true)]
-                                (let [retval (apply f (concat [obj] args))]
-                                  (.write cursor (xtypes/slot-for-value! cursor retval))))))))
+  (let [history (db-history db)
+        slot (.getSlot history -1)]
+    (append-context!
+      history
+      slot
+      (fn [^WriteCursor cursor]
+        (let [obj (xtypes/read-from-cursor cursor true)]
+          (let [retval (apply f (into [obj] args))]
+            (.write cursor (xtypes/slot-for-value! cursor retval))))))))
 
-(defonce ^:dynamic *return-history?* false)
-
-(defn xitdb-swap-and-call-watch!
-  "Performs the 'swap!' operation with locking and calls the watch function (if any)
-  with [history-index current-value-of-database (@db)].
-
-  While the watch function runs, the db is guaranteed not to change.
-  The watch function *must not* call swap! on the database and should
-  move fast, because it's executed under the global db lock."
+(defn xitdb-swap-with-lock!
+  "Performs the 'swap!' operation while locking `db.lock`.
+  Returns the new value of the database.
+  If the binding `*return-history?*` is true, returns
+  `[current-history-index db-before db-after]`."
   [xitdb f & args]
   (let [^ReentrantLock lock (.-lock xitdb)]
     (when (.isHeldByCurrentThread lock)
-      ;;TODO: I might change my mind about this...
-      (throw (IllegalStateException. "swap! should not be called from the swap! function or watch.")))
+      (throw (IllegalStateException. "swap! should not be called from swap! or reset!")))
     (try
       (.lock lock)
       (let [old-value (when *return-history?* (deref xitdb))
-            index (apply xitdb-swap! (into [(-> xitdb .rwdb) f] args))
+            index     (apply xitdb-swap! (into [(-> xitdb .rwdb) f] args))
             new-value (deref xitdb)]
         (if *return-history?*
           [index old-value new-value]
@@ -78,8 +84,8 @@
   (let [core (-> db .-core)]
     (when (instance? CoreFile core)
       ;;TODO: is this the best way to do it?
-      (let [field (.getDeclaredField CoreFile "file")
-            _ (.setAccessible field true)
+      (let [field                  (.getDeclaredField CoreFile "file")
+            _                      (.setAccessible field true)
             ^RandomAccessFile file (.get field core)]
         (.close file)))))
 
@@ -89,7 +95,7 @@
 (defn history-index [xdb]
   (.count (read-history (-> xdb .tldbro .get))))
 
-(deftype XITDBDatabase [tldbro rwdb watch lock]
+(deftype XITDBDatabase [tldbro rwdb lock]
 
   java.io.Closeable
   (close [this]
@@ -105,36 +111,45 @@
   clojure.lang.IAtom
 
   (reset [this new-value]
-    (let [history (db-history rwdb)]
-      (xitdb-reset! history new-value)
-      new-value))
+
+    (when (.isHeldByCurrentThread lock)
+      (throw (IllegalStateException. "reset! should not be called from swap! or reset!")))
+
+    (try
+      (.lock lock)
+      (let [history (db-history rwdb)]
+        (xitdb-reset! history new-value)
+        (deref this))
+      (finally
+        (.unlock lock))))
 
   (swap [this f]
-    (xitdb-swap-and-call-watch! this f))
+    (xitdb-swap-with-lock! this f))
 
   (swap [this f a]
-    (xitdb-swap-and-call-watch! this f a))
+    (xitdb-swap-with-lock! this f a))
 
   (swap [this f a1 a2]
-    (xitdb-swap-and-call-watch! this f a1 a2))
+    (xitdb-swap-with-lock! this f a1 a2))
 
   (swap [this f x y args]
-    (apply xitdb-swap-and-call-watch! (concat [this f x y] args))))
+    (apply xitdb-swap-with-lock! (concat [this f x y] args))))
 
-(defn xit-db [filename & [watch]]
-
+(defn xit-db
+  ""
+  [filename]
   (if (= :memory filename)
-    (let [memdb (open-database :memory "rw")
+    (let [memdb  (open-database :memory "rw")
           tdbmem (proxy [ThreadLocal] []
                    (initialValue []
                      memdb))]
-      (->XITDBDatabase tdbmem memdb watch (ReentrantLock.)))
+      (->XITDBDatabase tdbmem memdb (ReentrantLock.)))
 
     (let [tldb (proxy [ThreadLocal] []
                  (initialValue []
                    (open-database filename "r")))
           rwdb (open-database filename "rw")]
-      (->XITDBDatabase tldb rwdb watch (ReentrantLock.)))))
+      (->XITDBDatabase tldb rwdb (ReentrantLock.)))))
 
 
 
