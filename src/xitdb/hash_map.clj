@@ -3,6 +3,7 @@
     [xitdb.common :as common]
     [xitdb.xitdb-util :as util])
   (:import
+    [clojure.core.protocols IKVReduce]
     (io.github.radarroark.xitdb ReadCursor ReadHashMap WriteCursor WriteHashMap)))
 
 (defn map-seq
@@ -11,6 +12,7 @@
   (util/map-seq rhm #(common/-read-from-cursor %)))
 
 (deftype XITDBHashMap [^ReadHashMap rhm]
+
   clojure.lang.ILookup
   (valAt [this key]
     (.valAt this key nil))
@@ -73,6 +75,9 @@
         (remove [_]
           (throw (UnsupportedOperationException. "XITDBHashMap iterator is read-only"))))))
 
+  clojure.core.protocols/IKVReduce
+  (kv-reduce [this f init]
+    (util/map-kv-reduce rhm #(common/-read-from-cursor %) f init))
 
   common/IUnwrap
   (-unwrap [this]
@@ -156,6 +161,10 @@
   clojure.lang.Seqable
   (seq [this]
     (map-seq whm))
+
+  clojure.core.protocols/IKVReduce
+  (kv-reduce [this f init]
+    (util/map-kv-reduce whm #(common/-read-from-cursor %) f init))
 
   common/ISlot
   (-slot [this]

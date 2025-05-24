@@ -76,9 +76,20 @@
       2 (.invoke this (first args) (second args))
       (throw (IllegalArgumentException. "Wrong number of args passed to XITDBArrayList"))))
 
+  clojure.lang.IReduce
+  (reduce [this f]
+    (let [s (seq this)]
+      (if s
+        (reduce f (first s) (rest s))
+        (f))))
+
   clojure.lang.IReduceInit
   (reduce [this f init]
     (reduce f init (array-seq ral)))
+
+  clojure.core.protocols/IKVReduce
+  (kv-reduce [this f init]
+    (util/array-kv-reduce ral #(common/-read-from-cursor %) f init))
 
   java.util.Collection
   (^objects toArray [this]
@@ -184,6 +195,10 @@
   clojure.lang.Seqable
   (seq [this]
     (array-seq wal))
+
+  clojure.core.protocols/IKVReduce
+  (kv-reduce [this f init]
+    (util/array-kv-reduce wal #(common/-read-from-cursor %) f init))
 
   clojure.lang.IObj
   (withMeta [this _]

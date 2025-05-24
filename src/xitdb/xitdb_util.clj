@@ -467,4 +467,37 @@
                         (lazy-seq (cons value (lazy-iter))))))]
     (lazy-iter)))
 
+(defn map-kv-reduce
+  "Efficiently reduces over key-value pairs in a ReadHashMap, skipping hidden keys."
+  [^ReadHashMap rhm read-from-cursor f init]
+  (let [it (.iterator rhm)]
+    (loop [result init]
+      (if (.hasNext it)
+        (let [cursor (.next it)
+              kv     (.readKeyValuePair cursor)
+              k      (read-bytes-with-format-tag (.-keyCursor kv))]
+          (if (contains? hidden-keys k)
+            (recur result)
+            (let [v (read-from-cursor (.-valueCursor kv))
+                  new-result (f result k v)]
+              (if (reduced? new-result)
+                @new-result
+                (recur new-result)))))
+        result))))
+
+(defn array-kv-reduce
+  "Efficiently reduces over index-value pairs in a ReadArrayList."
+  [^ReadArrayList ral read-from-cursor f init]
+  (let [count (.count ral)]
+    (loop [i 0
+           result init]
+      (if (< i count)
+        (let [cursor (.getCursor ral i)
+              v (read-from-cursor cursor)
+              new-result (f result i v)]
+          (if (reduced? new-result)
+            @new-result
+            (recur (inc i) new-result)))
+        result))))
+
 
