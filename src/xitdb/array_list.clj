@@ -106,13 +106,6 @@
         (aset result len nil))
       result))
 
-  clojure.lang.IPersistentVector
-  (assocN [this i val]
-    (throw (UnsupportedOperationException. "XITDBArrayList is read-only")))
-
-  (length [this]
-    (.count ral))
-
   common/IUnwrap
   (-unwrap [this]
     ral)
