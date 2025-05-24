@@ -31,6 +31,13 @@
 
   clojure.lang.Sequential  ;; Add this to mark as sequential
 
+  clojure.lang.IPersistentVector
+  (assocN [this i val]
+    (throw (UnsupportedOperationException. "XITDBArrayList is read-only")))
+
+  (length [this]
+    (.count ral))
+
   clojure.lang.Indexed
   (nth [_ i]
     (let [cursor (.getCursor ral (long i))]
@@ -88,6 +95,12 @@
         (aset result len nil))
       result))
 
+  clojure.lang.IPersistentVector
+  (assocN [this i val]
+    (throw (UnsupportedOperationException. "XITDBArrayList is read-only")))
+
+  (length [this]
+    (.count ral))
 
   common/IUnwrap
   (-unwrap [this]
@@ -138,6 +151,14 @@
     (if (and (>= i 0) (< i (.count wal)))
       (common/-read-from-cursor (.putCursor wal i))
       not-found))
+
+  clojure.lang.IPersistentVector
+  (assocN [this i val]
+    (util/array-list-assoc-value! wal i (common/unwrap val))
+    this)
+
+  (length [this]
+    (.count wal))
 
   clojure.lang.Associative
   (assoc [this k v]
