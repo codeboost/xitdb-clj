@@ -5,19 +5,19 @@
     [xitdb.hash-map :as xhash-map]
     [xitdb.linked-list :as xlinked-list]
     [xitdb.hash-set :as xhash-set]
-    [xitdb.xitdb-util :as util])
+    [xitdb.util.conversion :as conversion])
   (:import
     (io.github.radarroark.xitdb ReadCursor ReadHashMap Slot Tag WriteCursor)))
 
 (defn xhash-map-or-set [^ReadCursor cursor]
   (let [hm (ReadHashMap. cursor)]
-    (if (.getCursor hm (util/db-key (util/internal-keys :is-set?)))
+    (if (.getCursor hm (conversion/db-key :%xitdb_set))
       (xhash-set/xhash-set cursor)
       (xhash-map/xhash-map cursor))))
 
 (defn x-write-map-or-set [^ReadCursor cursor]
   (let [hm (ReadHashMap. cursor)]
-    (if (.getCursor hm (util/db-key (util/internal-keys :is-set?)))
+    (if (.getCursor hm (conversion/db-key :%xitdb_set))
       (xhash-set/xwrite-hash-set cursor)
       (xhash-map/xwrite-hash-map cursor))))
 
@@ -27,7 +27,7 @@
     #_(println "read-from-cursor" value-tag "for-writing?" for-writing?)
     (cond
       (contains? #{Tag/SHORT_BYTES Tag/BYTES} value-tag)
-      (util/read-bytes-with-format-tag cursor)
+      (conversion/read-bytes-with-format-tag cursor)
 
       (= value-tag Tag/UINT)
       (.readUint cursor)
@@ -71,7 +71,7 @@
     (satisfies? common/ISlot v)
     (common/-slot v)
     :else
-    (util/v->slot! cursor v)))
+    (conversion/v->slot! cursor v)))
 
 (defn materialize
   "Converts a xitdb data structure `v` to a clojure data structure.

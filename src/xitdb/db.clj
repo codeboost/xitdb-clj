@@ -1,11 +1,11 @@
 (ns xitdb.db
   (:require
-    [xitdb.xitdb-types :as xtypes]
-    [xitdb.xitdb-util :as util])
+    [xitdb.util.conversion :as conversion]
+    [xitdb.xitdb-types :as xtypes])
   (:import
     [io.github.radarroark.xitdb
-     CoreBufferedFile CoreFile CoreMemory Hasher Database Database$ContextFunction
-     RandomAccessBufferedFile RandomAccessMemory ReadArrayList WriteArrayList WriteHashMap Tag WriteCursor]
+     CoreBufferedFile CoreFile CoreMemory Database Database$ContextFunction Hasher
+     RandomAccessBufferedFile RandomAccessMemory ReadArrayList WriteArrayList WriteCursor]
     [java.io File RandomAccessFile]
     [java.security MessageDigest]
     [java.util.concurrent.locks ReentrantLock]))
@@ -37,7 +37,7 @@
   Returns new history index."
   [^WriteArrayList history new-value]
   (append-context! history nil (fn [^WriteCursor cursor]
-                                 (util/v->slot! cursor new-value))))
+                                 (conversion/v->slot! cursor new-value))))
 
 (defn open-database
   [filename ^String open-mode]
@@ -58,7 +58,7 @@
       (fn [^WriteCursor cursor]
         (let [obj (xtypes/read-from-cursor cursor true)]
           (let [retval (apply f (into [obj] args))]
-            (.write cursor (xtypes/slot-for-value! cursor retval))))))))
+            (.write cursor (conversion/v->slot! cursor retval))))))))
 
 (defn xitdb-swap-with-lock!
   "Performs the 'swap!' operation while locking `db.lock`.

@@ -1,14 +1,14 @@
 (ns xitdb.array-list
   (:require
     [xitdb.common :as common]
-    [xitdb.xitdb-util :as util])
+    [xitdb.util.operations :as operations])
   (:import
     (io.github.radarroark.xitdb ReadArrayList ReadCursor WriteArrayList WriteCursor)))
 
 (defn array-seq
   [^ReadArrayList ral]
   "The cursors used must implement the IReadFromCursor protocol."
-  (util/array-seq ral #(common/-read-from-cursor %)))
+  (operations/array-seq ral #(common/-read-from-cursor %)))
 
 (deftype XITDBArrayList [^ReadArrayList ral]
   clojure.lang.IPersistentCollection
@@ -89,7 +89,7 @@
 
   clojure.core.protocols/IKVReduce
   (kv-reduce [this f init]
-    (util/array-kv-reduce ral #(common/-read-from-cursor %) f init))
+    (operations/array-kv-reduce ral #(common/-read-from-cursor %) f init))
 
   java.util.Collection
   (^objects toArray [this]
@@ -133,11 +133,11 @@
 
   (cons [this o]
     ;;TODO: Figure out if it is correct to append to the end
-    (util/array-list-assoc-value! wal (.count wal) (common/unwrap o))
+    (operations/array-list-append-value! wal (common/unwrap o))
     this)
 
   (empty [this]
-    (util/array-list-empty! wal)
+    (operations/array-list-empty! wal)
     this)
 
   (equiv [this other]
@@ -158,7 +158,7 @@
 
   clojure.lang.IPersistentVector
   (assocN [this i val]
-    (util/array-list-assoc-value! wal i (common/unwrap val))
+    (operations/array-list-assoc-value! wal i (common/unwrap val))
     this)
 
   (length [this]
@@ -168,7 +168,7 @@
   (assoc [this k v]
     (when-not (integer? k)
       (throw (IllegalArgumentException. "Key must be integer")))
-    (util/array-list-assoc-value! wal k (common/unwrap v))
+    (operations/array-list-assoc-value! wal k (common/unwrap v))
     this)
 
   (containsKey [this k]
@@ -191,7 +191,7 @@
 
   clojure.core.protocols/IKVReduce
   (kv-reduce [this f init]
-    (util/array-kv-reduce wal #(common/-read-from-cursor %) f init))
+    (operations/array-kv-reduce wal #(common/-read-from-cursor %) f init))
 
   clojure.lang.IObj
   (withMeta [this _]
@@ -207,7 +207,7 @@
 
   clojure.lang.ITransientCollection
   (conj [this val]
-    (util/array-list-append-value! wal (common/unwrap val))
+    (operations/array-list-append-value! wal (common/unwrap val))
     this)
 
   (persistent [this]
@@ -217,7 +217,7 @@
 
   (pop [this]
     (let [value (common/-read-from-cursor (-> wal .-cursor))]
-      (util/array-list-pop! wal)
+      (operations/array-list-pop! wal)
       value))
 
   common/ISlot

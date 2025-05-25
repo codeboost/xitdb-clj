@@ -1,15 +1,15 @@
 (ns xitdb.hash-map
   (:require
     [xitdb.common :as common]
-    [xitdb.xitdb-util :as util])
+    [xitdb.util.conversion :as conversion]
+    [xitdb.util.operations :as operations])
   (:import
-    [clojure.core.protocols IKVReduce]
-    (io.github.radarroark.xitdb ReadCursor ReadHashMap WriteCursor WriteHashMap)))
+    [io.github.radarroark.xitdb ReadCursor ReadHashMap WriteCursor WriteHashMap]))
 
 (defn map-seq
   [rhm]
   "The cursors used must implement the IReadFromCursor protocol."
-  (util/map-seq rhm #(common/-read-from-cursor %)))
+  (operations/map-seq rhm #(common/-read-from-cursor %)))
 
 (deftype XITDBHashMap [^ReadHashMap rhm]
 
@@ -18,14 +18,14 @@
     (.valAt this key nil))
 
   (valAt [this key not-found]
-    (let [cursor (.getCursor rhm (util/db-key key))]
+    (let [cursor (.getCursor rhm (conversion/db-key key))]
       (if (nil? cursor)
         not-found
         (common/-read-from-cursor cursor))))
 
   clojure.lang.Associative
   (containsKey [this key]
-    (not (nil? (.getCursor rhm (util/db-key key)))))
+    (not (nil? (.getCursor rhm (conversion/db-key key)))))
 
   (entryAt [this key]
     (let [v (.valAt this key nil)]
@@ -40,7 +40,7 @@
     (throw (UnsupportedOperationException. "XITDBHashMap is read-only")))
 
   (count [this]
-    (util/map-item-count rhm))
+    (operations/map-item-count rhm))
 
   clojure.lang.IPersistentCollection
   (cons [_ _]
@@ -77,7 +77,7 @@
 
   clojure.core.protocols/IKVReduce
   (kv-reduce [this f init]
-    (util/map-kv-reduce rhm #(common/-read-from-cursor %) f init))
+    (operations/map-kv-reduce rhm #(common/-read-from-cursor %) f init))
 
   common/IUnwrap
   (-unwrap [this]
@@ -121,7 +121,7 @@
     this)
 
   (empty [this]
-    (util/map-empty! whm)
+    (operations/map-empty! whm)
     this)
 
   (equiv [this other]
@@ -130,11 +130,11 @@
                  (seq this))))
   clojure.lang.Associative
   (assoc [this k v]
-    (util/map-assoc-value! whm k (common/unwrap v))
+    (operations/map-assoc-value! whm k (common/unwrap v))
     this)
 
   (containsKey [this key]
-    (util/map-contains-key? whm key))
+    (operations/map-contains-key? whm key))
 
   (entryAt [this key]
     (when (.containsKey this key)
@@ -142,21 +142,21 @@
 
   clojure.lang.IPersistentMap
   (without [this key]
-    (util/map-dissoc-key! whm key)
+    (operations/map-dissoc-key! whm key)
     this)
 
   (count [this]
-    (util/map-item-count whm))
+    (operations/map-item-count whm))
 
   clojure.lang.ILookup
   (valAt [this key]
     (.valAt this key nil))
 
   (valAt [this key not-found]
-    (let [cursor (util/map-read-cursor whm key)]
+    (let [cursor (operations/map-read-cursor whm key)]
       (if (nil? cursor)
         not-found
-        (common/-read-from-cursor (util/map-write-cursor whm key)))))
+        (common/-read-from-cursor (operations/map-write-cursor whm key)))))
 
   clojure.lang.Seqable
   (seq [this]
@@ -164,7 +164,7 @@
 
   clojure.core.protocols/IKVReduce
   (kv-reduce [this f init]
-    (util/map-kv-reduce whm #(common/-read-from-cursor %) f init))
+    (operations/map-kv-reduce whm #(common/-read-from-cursor %) f init))
 
   common/ISlot
   (-slot [this]

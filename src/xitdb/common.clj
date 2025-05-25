@@ -1,6 +1,4 @@
-(ns xitdb.common
-  (:require
-    [xitdb.xitdb-util :as util]))
+(ns xitdb.common)
 
 (defprotocol ISlot
   (-slot [this]))

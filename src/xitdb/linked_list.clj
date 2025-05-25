@@ -1,15 +1,15 @@
 (ns xitdb.linked-list
   (:require
     [xitdb.common :as common]
-    [xitdb.xitdb-util :as util])
+    [xitdb.util.conversion :as conversion]
+    [xitdb.util.operations :as operations])
   (:import
-    [io.github.radarroark.xitdb ReadLinkedArrayList ReadCursor ReadHashMap Tag
-                                Slot WriteLinkedArrayList WriteCursor]))
+    [io.github.radarroark.xitdb ReadCursor ReadLinkedArrayList WriteCursor WriteLinkedArrayList]))
 
 (defn array-seq
   [^ReadLinkedArrayList rlal]
   "The cursors used must implement the IReadFromCursor protocol."
-  (util/linked-array-seq rlal #(common/-read-from-cursor %)))
+  (operations/linked-array-seq rlal #(common/-read-from-cursor %)))
 
 (deftype XITDBLinkedArrayList [^ReadLinkedArrayList rlal]
   clojure.lang.IPersistentCollection
@@ -112,13 +112,13 @@
 
   (cons [this o]
     ;; TODO: This should insert at position 0
-    (util/linked-array-list-insert-value! wlal 0 (common/unwrap o))
+    (operations/linked-array-list-insert-value! wlal 0 (common/unwrap o))
     this)
 
   (empty [this]
     ;; Assuming similar empty behavior as arrays
     (let [^WriteCursor cursor (-> wlal .cursor)]
-      (.write cursor (util/v->slot! cursor (list))))
+      (.write cursor (conversion/v->slot! cursor (list))))
     this)
 
   (equiv [this other]
@@ -178,7 +178,7 @@
 
   clojure.lang.ITransientCollection
   (conj [this val]
-    (util/linked-array-list-append-value! wlal (common/unwrap val))
+    (operations/linked-array-list-append-value! wlal (common/unwrap val))
     this)
 
   (persistent [this]
@@ -192,7 +192,7 @@
 
   (pop [this]
     (if (pos? (.count wlal))
-      (util/linked-array-list-pop! wlal)
+      (operations/linked-array-list-pop! wlal)
       (throw (IllegalStateException. "Can't pop empty list")))
     this)
 

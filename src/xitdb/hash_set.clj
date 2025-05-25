@@ -1,14 +1,15 @@
 (ns xitdb.hash-set
   (:require
     [xitdb.common :as common]
-    [xitdb.xitdb-util :as util])
+    [xitdb.util.conversion :as conversion]
+    [xitdb.util.operations :as operations])
   (:import
-    (io.github.radarroark.xitdb ReadCursor ReadHashMap WriteCursor WriteHashMap)))
+    [io.github.radarroark.xitdb ReadHashMap WriteCursor WriteHashMap]))
 
 (defn set-seq
   [rhm]
   "The cursors used must implement the IReadFromCursor protocol."
-  (map val (util/map-seq rhm #(common/-read-from-cursor %))))
+  (map val (operations/map-seq rhm #(common/-read-from-cursor %))))
 
 (deftype XITDBHashSet [^ReadHashMap rhm]
   clojure.lang.IPersistentSet
@@ -16,7 +17,7 @@
     (throw (UnsupportedOperationException. "XITDBHashSet is read-only")))
 
   (contains [this k]
-    (not (nil? (.getCursor rhm (util/db-key (if (nil? k) 0 (.hashCode k)))))))
+    (not (nil? (.getCursor rhm (conversion/db-key (if (nil? k) 0 (.hashCode k)))))))
 
   (get [this k]
     (when (.contains this k)
@@ -35,7 +36,7 @@
          (every? #(.contains this %) other)))
 
   (count [_]
-    (util/map-item-count rhm))
+    (operations/map-item-count rhm))
 
   clojure.lang.Seqable
   (seq [_]
@@ -86,11 +87,11 @@
 (deftype XITDBWriteHashSet [^WriteHashMap whm]
   clojure.lang.IPersistentSet
   (disjoin [this k]
-    (util/map-dissoc-key! whm (.hashCode k))
+    (operations/map-dissoc-key! whm (.hashCode k))
     this)
 
   (contains [this k]
-    (util/map-contains-key? whm (.hashCode k)))
+    (operations/map-contains-key? whm (.hashCode k)))
 
   (get [this k]
     (when (.contains this k)
@@ -98,11 +99,11 @@
 
   clojure.lang.IPersistentCollection
   (cons [this o]
-    (util/set-assoc-value! whm (common/unwrap o))
+    (operations/set-assoc-value! whm (common/unwrap o))
     this)
 
   (empty [this]
-    (util/set-empty! whm)
+    (operations/set-empty! whm)
     this)
 
   (equiv [this other]
@@ -111,7 +112,7 @@
          (every? #(.contains this %) other)))
 
   (count [_]
-    (util/map-item-count whm))
+    (operations/map-item-count whm))
 
   clojure.lang.Seqable
   (seq [_]
@@ -140,7 +141,7 @@
 
 ;; Constructor functions
 (defn xwrite-hash-set [^WriteCursor write-cursor]
-  (let [whm (util/init-hash-set! write-cursor)]
+  (let [whm (operations/init-hash-set! write-cursor)]
     (->XITDBWriteHashSet whm)))
 
 (defn xhash-set [^ReadHashMap read-cursor]
