@@ -1,11 +1,12 @@
 (ns xitdb.db
   (:require
+    [xitdb.common :as common]
     [xitdb.util.conversion :as conversion]
     [xitdb.xitdb-types :as xtypes])
   (:import
     [io.github.radarroark.xitdb
      CoreBufferedFile CoreFile CoreMemory Database Database$ContextFunction Hasher
-     RandomAccessBufferedFile RandomAccessMemory ReadArrayList WriteArrayList WriteCursor]
+     RandomAccessBufferedFile RandomAccessMemory ReadArrayList ReadCursor WriteArrayList WriteCursor]
     [java.io File RandomAccessFile]
     [java.security MessageDigest]
     [java.util.concurrent.locks ReentrantLock]))
@@ -47,6 +48,12 @@
         hasher (Hasher. (MessageDigest/getInstance "SHA-1"))]
     (Database. core hasher)))
 
+(defn v->slot!
+  [^WriteCursor cursor v]
+  (if (satisfies? common/ISlot v)
+    (common/-slot v)
+    (conversion/v->slot! cursor v)))
+
 (defn xitdb-swap!
   "Returns history index."
   [db f & args]
@@ -58,7 +65,7 @@
       (fn [^WriteCursor cursor]
         (let [obj (xtypes/read-from-cursor cursor true)]
           (let [retval (apply f (into [obj] args))]
-            (.write cursor (conversion/v->slot! cursor retval))))))))
+            (.write cursor (v->slot! cursor retval))))))))
 
 (defn xitdb-swap-with-lock!
   "Performs the 'swap!' operation while locking `db.lock`.
