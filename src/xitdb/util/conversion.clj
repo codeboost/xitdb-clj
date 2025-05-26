@@ -2,7 +2,11 @@
   (:require
     [xitdb.util.validation :as validation])
   (:import
-    [io.github.radarroark.xitdb Database$Float Database$Bytes Database$Int Database$Uint ReadArrayList ReadCursor ReadHashMap ReadLinkedArrayList Slot WriteArrayList WriteCursor WriteHashMap Tag WriteLinkedArrayList]))
+    [io.github.radarroark.xitdb
+     Database$Bytes Database$Float Database$Int
+     ReadArrayList ReadCursor ReadHashMap ReadCountedHashMap
+     Slot Tag WriteArrayList WriteCursor WriteCountedHashMap
+     WriteHashMap WriteLinkedArrayList]))
 
 (defn xit-tag->keyword
   "Converts a XitDB Tag enum to a corresponding Clojure keyword."
@@ -26,7 +30,7 @@
   {:keyword     "kw"
    :boolean     "bl"
    :key-integer "ki"
-   :nil         "nl"
+   :nil         "nl" ;; TODO: Could use Tag/NONE instead
    :inst        "in"
    :date        "da"})
 
@@ -228,16 +232,11 @@
         (.append write-list (primitive-for v))))
     (.-cursor write-list)))
 
-;; Forward declarations for mutual dependencies
-(declare map-assoc-value!)
-(declare init-hash-set!)
-(declare set-assoc-value!)
-
 (defn ^WriteCursor map->WriteHashMapCursor!
   "Writes a Clojure map to a XitDB WriteHashMap.
   Returns the cursor of the created WriteHashMap."
   [^WriteCursor cursor m]
-  (let [whm (WriteHashMap. cursor)]
+  (let [whm (WriteCountedHashMap. cursor)]
     (doseq [[k v] m]
       (let [cursor (.putCursor whm (db-key k))]
         (.write cursor (v->slot! cursor v))))

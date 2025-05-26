@@ -3,7 +3,7 @@
     [xitdb.util.conversion :as conversion]
     [xitdb.util.validation :as validation])
   (:import
-    [io.github.radarroark.xitdb ReadArrayList ReadHashMap ReadLinkedArrayList Tag WriteArrayList WriteCursor WriteHashMap WriteLinkedArrayList]))
+    [io.github.radarroark.xitdb ReadArrayList ReadCountedHashMap ReadHashMap ReadLinkedArrayList Tag WriteArrayList WriteCursor WriteHashMap WriteLinkedArrayList]))
 
 (def internal-keys
   "Map of logical internal key names to their actual storage keys in XitDB.
@@ -99,24 +99,6 @@
 ;; Map Operations
 ;; ============================================================================
 
-(defn- update-map-item-count!
-  "Update the internal key `:count` by applying `f` to the current value.
-  If the key `:count` does not exist, it is created."
-  [^WriteHashMap whm f]
-  (when *enable-map-fast-count?*
-    (let [count-cursor (.putCursor whm (conversion/db-key (internal-keys :count)))
-          value (try
-                  (.readInt count-cursor)
-                  (catch Exception _ 0))
-          new-value (conversion/primitive-for (f (or value 0)))]
-      (.write count-cursor new-value))))
-
-(defn- map-item-count-stored
-  "Returns the value of the internal key `:count`."
-  [^ReadHashMap rhm]
-  (let [count-cursor (.getCursor rhm (conversion/db-key (internal-keys :count)))]
-    (.readInt count-cursor)))
-
 (defn map-assoc-value!
   "Associates a key-value pair in a WriteHashMap.
   
@@ -133,11 +115,8 @@
   (when (contains? hidden-keys k)
     (throw (IllegalArgumentException. (str "Cannot assoc key. " k ". It is reserved for internal use."))))
 
-  (let [cursor (.putCursor whm (conversion/db-key k))
-        new? (= (-> cursor .slot .tag) Tag/NONE)]
+  (let [cursor (.putCursor whm (conversion/db-key k))]
     (.write cursor (conversion/v->slot! cursor v))
-    (when new?
-      (update-map-item-count! whm inc))
     whm))
 
 (defn map-dissoc-key!
@@ -148,8 +127,8 @@
   (when (contains? hidden-keys k)
     (throw (IllegalArgumentException. (str "Cannot dissoc key. " k ". It is reserved for internal use."))))
 
-  (when (.remove whm (conversion/db-key k))
-    (update-map-item-count! whm dec)))
+  (.remove whm (conversion/db-key k))
+  whm)
 
 (defn ^WriteHashMap map-empty!
   "Empties a WriteHashMap by replacing its contents with an empty map.
@@ -180,8 +159,8 @@
 (defn map-item-count
   "Returns the number of key/vals in the map."
   [^ReadHashMap rhm]
-  (if *enable-map-fast-count?*
-    (map-item-count-stored rhm)
+  (if (instance? ReadCountedHashMap rhm)
+    (.count ^ReadCountedHashMap rhm)
     (map-item-count-iterated rhm)))
 
 (defn map-read-cursor
@@ -211,8 +190,7 @@
           new? (= (-> cursor .slot .tag) Tag/NONE)]
       (when new?
         ;; Only write value when the hashCode key doesn't exist
-        (.write cursor (conversion/v->slot! cursor v))
-        (update-map-item-count! whm inc))
+        (.write cursor (conversion/v->slot! cursor v)))
       whm)))
 
 (defn ^WriteHashMap mark-as-set!
@@ -250,7 +228,7 @@
 
 (defn map-seq
   "Return a lazy seq of key-value MapEntry pairs, skipping hidden keys."
-  [^ReadHashMap rhm read-from-cursor]
+  [^ReadCountedHashMap rhm read-from-cursor]
   (let [it (.iterator rhm)]
     (letfn [(step []
               (lazy-seq

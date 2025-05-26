@@ -4,7 +4,7 @@
     [xitdb.util.conversion :as conversion]
     [xitdb.util.operations :as operations])
   (:import
-    [io.github.radarroark.xitdb ReadCursor ReadHashMap WriteCursor WriteHashMap]))
+    [io.github.radarroark.xitdb ReadCountedHashMap ReadCursor ReadHashMap WriteCountedHashMap WriteCursor WriteHashMap]))
 
 (defn map-seq
   [rhm]
@@ -184,5 +184,12 @@
 
 (defn xhash-map [^ReadCursor read-cursor]
   (->XITDBHashMap (ReadHashMap. read-cursor)))
+
+(defn xwrite-hash-map-counted [^WriteCursor write-cursor]
+  (->XITDBWriteHashMap (WriteCountedHashMap. write-cursor)))
+
+(defn xhash-map-counted [^ReadCursor read-cursor]
+  (->XITDBHashMap (ReadCountedHashMap. read-cursor)))
+
 
 
