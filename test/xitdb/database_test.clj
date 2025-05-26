@@ -373,13 +373,6 @@
 
     (is (tu/db-equal-to-atom? db))))
 
-(comment
-  (with-db [db (tu/test-memory-db-raw)]
-    (reset! db {:raw-songs-swap [1 2 3 4]})
-    (swap! db update :raw-songs-swap into [5 6 7])
-    nil))
-
-
 (deftest NilTest
   (testing "nil values"
     (with-db [db (tu/test-db)]
