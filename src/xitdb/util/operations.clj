@@ -5,23 +5,6 @@
   (:import
     [io.github.radarroark.xitdb Database ReadArrayList ReadCountedHashMap ReadCountedHashSet ReadHashMap ReadHashSet ReadLinkedArrayList Tag WriteArrayList WriteCursor WriteHashMap WriteHashSet WriteLinkedArrayList]))
 
-(def internal-keys
-  "Map of logical internal key names to their actual storage keys in XitDB.
-  These keys are used internally by the system and should not be exposed to users."
-  {:count :%xitdb__count
-   :is-set? :%xitdb_set})
-
-(def hidden-keys
-  "Set of keys that are used internally and should be hidden from user operations.
-  Operations like seq, reduce, and count will skip these keys."
-  (set (vals internal-keys)))
-
-(def ^:dynamic *enable-map-fast-count?*
-  "When true, maps store their item count in an internal key for O(1) count operations.
-  When false, count operations require iteration over all entries (O(n)).
-  Default is false to minimize storage overhead."
-  false)
-
 ;; ============================================================================
 ;; Array List Operations
 ;; ============================================================================
@@ -123,9 +106,6 @@
   Throws IllegalArgumentException if attempting to remove an internal key.
   Updates the internal count if fast counting is enabled."
   [^WriteHashMap whm k]
-  (when (contains? hidden-keys k)
-    (throw (IllegalArgumentException. (str "Cannot dissoc key. " k ". It is reserved for internal use."))))
-
   (let [hash-value (conversion/hash-value (-> whm .cursor .db) k)]
     (.remove whm hash-value))
   whm)
@@ -225,7 +205,7 @@
 ;; ============================================================================
 
 (defn map-seq
-  "Return a lazy seq of key-value MapEntry pairs, skipping hidden keys."
+  "Return a lazy seq of key-value MapEntry pairs."
   [^ReadHashMap rhm read-from-cursor]
   (let [it (.iterator rhm)]
     (letfn [(step []
@@ -234,10 +214,8 @@
                   (let [cursor (.next it)
                         kv     (.readKeyValuePair cursor)
                         k      (read-from-cursor (.-keyCursor kv))]
-                    (if (contains? hidden-keys k)
-                      (step)
-                      (let [v (read-from-cursor (.-valueCursor kv))]
-                        (cons (clojure.lang.MapEntry. k v) (step))))))))]
+                    (let [v (read-from-cursor (.-valueCursor kv))]
+                      (cons (clojure.lang.MapEntry. k v) (step)))))))]
       (step))))
 
 (defn set-seq
@@ -287,14 +265,13 @@
       (if (.hasNext it)
         (let [cursor (.next it)
               kv     (.readKeyValuePair cursor)
-              k      (conversion/read-bytes-with-format-tag (.-keyCursor kv))]
-          (if (contains? hidden-keys k)
-            (recur result)
-            (let [v (read-from-cursor (.-valueCursor kv))
-                  new-result (f result k v)]
-              (if (reduced? new-result)
-                @new-result
-                (recur new-result)))))
+              k      (read-from-cursor (.-keyCursor kv))]
+          (let [v (read-from-cursor (.-valueCursor kv))
+                new-result (f result k v)]
+            (if (reduced? new-result)
+              @new-result
+              (recur new-result))))
+
         result))))
 
 (defn array-kv-reduce

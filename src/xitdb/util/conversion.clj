@@ -51,11 +51,13 @@
     key))
 
 (defn hash-value ^bytes [^Database jdb v]
-  (let [hash-code (if (nil? v) 0 (.hashCode v))
-        buffer    (java.nio.ByteBuffer/allocate Integer/BYTES)
-        _         (.putInt buffer hash-code)
-        bytes     (.array buffer)]
-    (.digest (.md jdb) bytes)))
+  (if (nil? v)
+    (byte-array (-> jdb .-header .hashSize))
+    (let [hash-code (.hashCode v)
+          buffer    (java.nio.ByteBuffer/allocate Integer/BYTES)
+          _         (.putInt buffer hash-code)
+          bytes     (.array buffer)]
+      (.digest (.md jdb) bytes))))
 
 (defn ^Slot primitive-for
   "Converts a Clojure primitive value to its corresponding XitDB representation.
