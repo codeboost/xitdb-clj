@@ -17,7 +17,7 @@
     (throw (UnsupportedOperationException. "XITDBHashSet is read-only")))
 
   (contains [this k]
-    (not (nil? (.getCursor rhs (conversion/hash-value (-> rhs .cursor .db) key)))))
+    (not (nil? (.getCursor rhs (conversion/db-key-hash (-> rhs .cursor .db) key)))))
 
   (get [this k]
     (when (.contains this k)

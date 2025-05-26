@@ -95,7 +95,7 @@
   Throws IllegalArgumentException if attempting to associate an internal key.
   Updates the internal count if fast counting is enabled."
   [^WriteHashMap whm k v]
-  (let [hash-value (conversion/hash-value (-> whm .cursor .db) k)
+  (let [hash-value (conversion/db-key-hash (-> whm .cursor .db) k)
         key-cursor (.putKeyCursor whm hash-value)
         cursor (.putCursor whm hash-value)]
     (.writeIfEmpty key-cursor (conversion/v->slot! key-cursor k))
@@ -106,7 +106,7 @@
   Throws IllegalArgumentException if attempting to remove an internal key.
   Updates the internal count if fast counting is enabled."
   [^WriteHashMap whm k]
-  (let [hash-value (conversion/hash-value (-> whm .cursor .db) k)]
+  (let [hash-value (conversion/db-key-hash (-> whm .cursor .db) k)]
     (.remove whm hash-value))
   whm)
 
@@ -122,7 +122,7 @@
   "Checks if a WriteHashMap contains the specified key.
   Returns true if the key exists, false otherwise."
   [^ReadHashMap whm key]
-  (let [hash-value (conversion/hash-value (-> whm .cursor .db) key)]
+  (let [hash-value (conversion/db-key-hash (-> whm .cursor .db) key)]
     (not (nil? (.getKeyCursor whm hash-value)))))
 
 (defn map-item-count-iterated
@@ -148,7 +148,7 @@
   "Gets a read cursor for the specified key in a ReadHashMap.
   Returns the cursor if the key exists, nil otherwise."
   [^ReadHashMap rhm key]
-  (let [hash-value (conversion/hash-value (-> rhm .cursor .db) key)]
+  (let [hash-value (conversion/db-key-hash (-> rhm .cursor .db) key)]
     (.getCursor rhm hash-value)))
 
 
@@ -156,7 +156,7 @@
   "Gets a write cursor for the specified key in a WriteHashMap.
   Creates the key if it doesn't exist."
   [^WriteHashMap whm key]
-  (let [hash-value (conversion/hash-value (-> whm .cursor .db) key)]
+  (let [hash-value (conversion/db-key-hash (-> whm .cursor .db) key)]
     (.putCursor whm hash-value)))
 
 ;; ============================================================================
@@ -176,20 +176,20 @@
   Only adds the value if it doesn't already exist (based on hashCode).
   Returns the modified WriteHashMap."
   [^WriteHashSet whs v]
-  (let [hash-code (conversion/hash-value (-> whs .cursor .db) v)
+  (let [hash-code (conversion/db-key-hash (-> whs .cursor .db) v)
         cursor (.putCursor whs hash-code)]
     (.writeIfEmpty cursor (conversion/v->slot! cursor v))
     whs))
 
 (defn set-disj-value!
   [^WriteHashSet whs v]
-  (let [hash-code (conversion/hash-value (-> whs .cursor .db) v)]
+  (let [hash-code (conversion/db-key-hash (-> whs .cursor .db) v)]
     (.remove whs hash-code)
     whs))
 
 (defn set-contains?
   [rhs v]
-  (let [hash-code (conversion/hash-value (-> rhs .-cursor .-db) v)
+  (let [hash-code (conversion/db-key-hash (-> rhs .-cursor .-db) v)
         cursor (.getCursor rhs hash-code)]
     (some? cursor)))
 

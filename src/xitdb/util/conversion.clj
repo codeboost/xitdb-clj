@@ -6,7 +6,8 @@
      Database Database$Bytes Database$Float Database$Int
      ReadArrayList ReadCountedHashSet ReadCursor ReadHashMap ReadCountedHashMap
      ReadHashSet Slot Tag WriteArrayList WriteCountedHashSet WriteCursor WriteCountedHashMap
-     WriteHashMap WriteHashSet WriteLinkedArrayList]))
+     WriteHashMap WriteHashSet WriteLinkedArrayList]
+    [java.nio ByteBuffer]))
 
 (defn xit-tag->keyword
   "Converts a XitDB Tag enum to a corresponding Clojure keyword."
@@ -50,11 +51,14 @@
       (name key))
     key))
 
-(defn hash-value ^bytes [^Database jdb v]
+(defn db-key-hash
+  "Returns a byte array representing the stable hash digest of (Clojure) value `v`.
+  Uses the MessageDigest from the database."
+  ^bytes [^Database jdb v]
   (if (nil? v)
     (byte-array (-> jdb .-header .hashSize))
     (let [hash-code (hash v)
-          buffer    (java.nio.ByteBuffer/allocate Integer/BYTES)
+          buffer    (ByteBuffer/allocate Integer/BYTES)
           _         (.putInt buffer hash-code)
           bytes     (.array buffer)]
       (.digest (.md jdb) bytes))))
@@ -264,7 +268,7 @@
   [^WriteCursor cursor m]
   (let [whm (WriteCountedHashMap. cursor)]
     (doseq [[k v] m]
-      (let [hash-value (hash-value (-> cursor .db) k)
+      (let [hash-value (db-key-hash (-> cursor .db) k)
             key-cursor (.putKeyCursor whm hash-value)
             cursor (.putCursor whm hash-value)]
         (.writeIfEmpty key-cursor (v->slot! key-cursor k))
@@ -278,7 +282,7 @@
   (let [whm (WriteCountedHashSet. cursor)
         db (-> cursor .db)]
     (doseq [v s]
-      (let [hash-code (hash-value db v)
+      (let [hash-code (db-key-hash db v)
             cursor (.putCursor whm hash-code)]
         (.writeIfEmpty cursor (v->slot! cursor v))))
     (.-cursor whm)))
