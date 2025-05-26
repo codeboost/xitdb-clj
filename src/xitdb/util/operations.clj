@@ -164,17 +164,14 @@
 ;; ============================================================================
 
 (defn set-item-count
-  "Returns the number of key/vals in the map."
+  "Returns the number of values in the set."
   [^ReadHashSet rhs]
   (if (instance? ReadCountedHashSet rhs)
     (.count ^ReadCountedHashSet rhs)
     (map-item-count-iterated rhs)))
 
 (defn set-assoc-value!
-  "Adds a value to a set (implemented as a WriteHashMap).
-  Uses the value's hashCode as the key and the value itself as the value.
-  Only adds the value if it doesn't already exist (based on hashCode).
-  Returns the modified WriteHashMap."
+  "Adds a value to a set."
   [^WriteHashSet whs v]
   (let [hash-code (conversion/db-key-hash (-> whs .cursor .db) v)
         cursor (.putCursor whs hash-code)]
@@ -182,19 +179,21 @@
     whs))
 
 (defn set-disj-value!
+  "Removes a value from a set"
   [^WriteHashSet whs v]
   (let [hash-code (conversion/db-key-hash (-> whs .cursor .db) v)]
     (.remove whs hash-code)
     whs))
 
 (defn set-contains?
+  "Returns true if `v` is in the set."
   [rhs v]
   (let [hash-code (conversion/db-key-hash (-> rhs .-cursor .-db) v)
         cursor (.getCursor rhs hash-code)]
     (some? cursor)))
 
 (defn ^WriteHashMap set-empty!
-  ""
+  "Replaces the whs value with an empty set."
   [^WriteHashSet whs]
   (let [empty-set (conversion/v->slot! (.cursor whs) #{})]
     (.write ^WriteCursor (.cursor whs) empty-set))
