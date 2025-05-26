@@ -3,7 +3,7 @@
     [xitdb.util.conversion :as conversion]
     [xitdb.util.validation :as validation])
   (:import
-    [io.github.radarroark.xitdb Database ReadArrayList ReadCountedHashMap ReadCountedHashSet ReadHashMap ReadHashSet ReadLinkedArrayList Tag WriteArrayList WriteCursor WriteHashMap WriteHashSet WriteLinkedArrayList]))
+    [io.github.radarroark.xitdb ReadArrayList ReadCountedHashMap ReadCountedHashSet ReadHashMap ReadHashSet ReadLinkedArrayList Tag WriteArrayList WriteCursor WriteHashMap WriteHashSet WriteLinkedArrayList]))
 
 ;; ============================================================================
 ;; Array List Operations

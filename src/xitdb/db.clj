@@ -6,7 +6,7 @@
   (:import
     [io.github.radarroark.xitdb
      CoreBufferedFile CoreFile CoreMemory Database Database$ContextFunction Hasher
-     RandomAccessBufferedFile RandomAccessMemory ReadArrayList ReadCursor WriteArrayList WriteCursor]
+     RandomAccessBufferedFile RandomAccessMemory ReadArrayList WriteArrayList WriteCursor]
     [java.io File RandomAccessFile]
     [java.security MessageDigest]
     [java.util.concurrent.locks ReentrantLock]))
@@ -49,6 +49,9 @@
     (Database. core hasher)))
 
 (defn v->slot!
+  "Converts a value to a slot which can be written to a cursor.
+  For XITDB* types (which support ISlot), will return `-slot`,
+  for all other types `conversion/v->slot!`"
   [^WriteCursor cursor v]
   (if (satisfies? common/ISlot v)
     (common/-slot v)

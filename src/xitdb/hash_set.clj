@@ -4,7 +4,9 @@
     [xitdb.util.conversion :as conversion]
     [xitdb.util.operations :as operations])
   (:import
-    [io.github.radarroark.xitdb ReadCountedHashSet ReadCursor ReadHashMap ReadHashSet WriteCountedHashSet WriteCursor WriteHashMap WriteHashSet]))
+    [io.github.radarroark.xitdb
+     ReadCountedHashSet ReadCursor ReadHashSet
+     WriteCountedHashSet WriteCursor WriteHashSet]))
 
 (defn set-seq
   [rhm]
@@ -17,7 +19,7 @@
     (throw (UnsupportedOperationException. "XITDBHashSet is read-only")))
 
   (contains [this k]
-    (not (nil? (.getCursor rhs (conversion/db-key-hash (-> rhs .cursor .db) key)))))
+    (operations/set-contains? rhs k))
 
   (get [this k]
     (when (.contains this k)

@@ -1,10 +1,11 @@
 (ns xitdb.hash-map
   (:require
     [xitdb.common :as common]
-    [xitdb.util.conversion :as conversion]
     [xitdb.util.operations :as operations])
   (:import
-    [io.github.radarroark.xitdb ReadCountedHashMap ReadCursor ReadHashMap WriteCountedHashMap WriteCursor WriteHashMap]))
+    [io.github.radarroark.xitdb
+     ReadCountedHashMap ReadCursor ReadHashMap
+     WriteCountedHashMap WriteCursor WriteHashMap]))
 
 (defn map-seq
   [rhm]
