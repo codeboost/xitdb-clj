@@ -262,15 +262,14 @@
   (let [it (.iterator rhm)]
     (loop [result init]
       (if (.hasNext it)
-        (let [cursor (.next it)
-              kv     (.readKeyValuePair cursor)
-              k      (read-from-cursor (.-keyCursor kv))]
-          (let [v          (read-from-cursor (.-valueCursor kv))
-                new-result (f result k v)]
-            (if (reduced? new-result)
-              @new-result
-              (recur new-result))))
-
+        (let [cursor     (.next it)
+              kv         (.readKeyValuePair cursor)
+              k          (read-from-cursor (.-keyCursor kv))
+              v          (read-from-cursor (.-valueCursor kv))
+              new-result (f result k v)]
+          (if (reduced? new-result)
+            @new-result
+            (recur new-result)))
         result))))
 
 (defn array-kv-reduce
