@@ -7,20 +7,7 @@
     [xitdb.hash-set :as xhash-set]
     [xitdb.util.conversion :as conversion])
   (:import
-    (io.github.radarroark.xitdb ReadCursor ReadHashMap Slot Tag WriteCursor)))
-
-(defn xhash-map-or-set [^ReadCursor cursor]
-  (let [hm (ReadHashMap. cursor)]
-    (if (.getCursor hm (conversion/db-key :%xitdb_set))
-      (xhash-set/xhash-set cursor)
-      (xhash-map/xhash-map cursor))))
-
-(defn x-write-map-or-set [^ReadCursor cursor]
-  (let [hm (ReadHashMap. cursor)]
-    (if (.getCursor hm (conversion/db-key :%xitdb_set))
-      (xhash-set/xwrite-hash-set cursor)
-      (xhash-map/xwrite-hash-map cursor))))
-
+    (io.github.radarroark.xitdb ReadCountedHashMap ReadCursor ReadHashMap Slot Tag WriteCursor WriteHashMap)))
 
 (defn read-from-cursor [^ReadCursor cursor for-writing?]
   (let [value-tag (some-> cursor .slot .tag)]
@@ -39,10 +26,24 @@
       (.readFloat cursor)
 
       (= value-tag Tag/HASH_MAP)
-
       (if for-writing?
-        (x-write-map-or-set cursor)
-        (xhash-map-or-set cursor))
+        (xhash-map/xwrite-hash-map cursor)
+        (xhash-map/xhash-map cursor))
+
+      (= value-tag Tag/COUNTED_HASH_MAP)
+      (if for-writing?
+        (xhash-map/xwrite-hash-map-counted cursor)
+        (xhash-map/xhash-map-counted cursor))
+
+      (= value-tag Tag/HASH_SET)
+      (if for-writing?
+        (xhash-set/xwrite-hash-set cursor)
+        (xhash-set/xhash-set cursor))
+
+      (= value-tag Tag/COUNTED_HASH_SET)
+      (if for-writing?
+        (xhash-set/xwrite-hash-set-counted cursor)
+        (xhash-set/xhash-set-counted cursor))
 
       (= value-tag Tag/ARRAY_LIST)
       (if for-writing?

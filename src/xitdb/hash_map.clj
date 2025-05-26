@@ -1,10 +1,11 @@
 (ns xitdb.hash-map
   (:require
     [xitdb.common :as common]
-    [xitdb.util.conversion :as conversion]
     [xitdb.util.operations :as operations])
   (:import
-    [io.github.radarroark.xitdb ReadCursor ReadHashMap WriteCursor WriteHashMap]))
+    [io.github.radarroark.xitdb
+     ReadCountedHashMap ReadCursor ReadHashMap
+     WriteCountedHashMap WriteCursor WriteHashMap]))
 
 (defn map-seq
   [rhm]
@@ -18,14 +19,14 @@
     (.valAt this key nil))
 
   (valAt [this key not-found]
-    (let [cursor (.getCursor rhm (conversion/db-key key))]
+    (let [cursor (operations/map-read-cursor rhm key)]
       (if (nil? cursor)
         not-found
         (common/-read-from-cursor cursor))))
 
   clojure.lang.Associative
   (containsKey [this key]
-    (not (nil? (.getCursor rhm (conversion/db-key key)))))
+    (operations/map-contains-key? rhm key))
 
   (entryAt [this key]
     (let [v (.valAt this key nil)]
@@ -184,5 +185,12 @@
 
 (defn xhash-map [^ReadCursor read-cursor]
   (->XITDBHashMap (ReadHashMap. read-cursor)))
+
+(defn xwrite-hash-map-counted [^WriteCursor write-cursor]
+  (->XITDBWriteHashMap (WriteCountedHashMap. write-cursor)))
+
+(defn xhash-map-counted [^ReadCursor read-cursor]
+  (->XITDBHashMap (ReadCountedHashMap. read-cursor)))
+
 
 

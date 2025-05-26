@@ -3,24 +3,7 @@
     [xitdb.util.conversion :as conversion]
     [xitdb.util.validation :as validation])
   (:import
-    [io.github.radarroark.xitdb ReadArrayList ReadHashMap ReadLinkedArrayList Tag WriteArrayList WriteCursor WriteHashMap WriteLinkedArrayList]))
-
-(def internal-keys
-  "Map of logical internal key names to their actual storage keys in XitDB.
-  These keys are used internally by the system and should not be exposed to users."
-  {:count :%xitdb__count
-   :is-set? :%xitdb_set})
-
-(def hidden-keys
-  "Set of keys that are used internally and should be hidden from user operations.
-  Operations like seq, reduce, and count will skip these keys."
-  (set (vals internal-keys)))
-
-(def ^:dynamic *enable-map-fast-count?*
-  "When true, maps store their item count in an internal key for O(1) count operations.
-  When false, count operations require iteration over all entries (O(n)).
-  Default is false to minimize storage overhead."
-  false)
+    [io.github.radarroark.xitdb ReadArrayList ReadCountedHashMap ReadCountedHashSet ReadHashMap ReadHashSet ReadLinkedArrayList Tag WriteArrayList WriteCursor WriteHashMap WriteHashSet WriteLinkedArrayList]))
 
 ;; ============================================================================
 ;; Array List Operations
@@ -99,24 +82,6 @@
 ;; Map Operations
 ;; ============================================================================
 
-(defn- update-map-item-count!
-  "Update the internal key `:count` by applying `f` to the current value.
-  If the key `:count` does not exist, it is created."
-  [^WriteHashMap whm f]
-  (when *enable-map-fast-count?*
-    (let [count-cursor (.putCursor whm (conversion/db-key (internal-keys :count)))
-          value (try
-                  (.readInt count-cursor)
-                  (catch Exception _ 0))
-          new-value (conversion/primitive-for (f (or value 0)))]
-      (.write count-cursor new-value))))
-
-(defn- map-item-count-stored
-  "Returns the value of the internal key `:count`."
-  [^ReadHashMap rhm]
-  (let [count-cursor (.getCursor rhm (conversion/db-key (internal-keys :count)))]
-    (.readInt count-cursor)))
-
 (defn map-assoc-value!
   "Associates a key-value pair in a WriteHashMap.
   
@@ -130,26 +95,20 @@
   Throws IllegalArgumentException if attempting to associate an internal key.
   Updates the internal count if fast counting is enabled."
   [^WriteHashMap whm k v]
-  (when (contains? hidden-keys k)
-    (throw (IllegalArgumentException. (str "Cannot assoc key. " k ". It is reserved for internal use."))))
-
-  (let [cursor (.putCursor whm (conversion/db-key k))
-        new? (= (-> cursor .slot .tag) Tag/NONE)]
-    (.write cursor (conversion/v->slot! cursor v))
-    (when new?
-      (update-map-item-count! whm inc))
-    whm))
+  (let [key-hash   (conversion/db-key-hash (-> whm .cursor .db) k)
+        key-cursor (.putKeyCursor whm key-hash)
+        cursor     (.putCursor whm key-hash)]
+    (.writeIfEmpty key-cursor (conversion/v->slot! key-cursor k))
+    (.write cursor (conversion/v->slot! cursor v))))
 
 (defn map-dissoc-key!
   "Removes a key-value pair from a WriteHashMap.
   Throws IllegalArgumentException if attempting to remove an internal key.
   Updates the internal count if fast counting is enabled."
   [^WriteHashMap whm k]
-  (when (contains? hidden-keys k)
-    (throw (IllegalArgumentException. (str "Cannot dissoc key. " k ". It is reserved for internal use."))))
-
-  (when (.remove whm (conversion/db-key k))
-    (update-map-item-count! whm dec)))
+  (let [key-hash (conversion/db-key-hash (-> whm .cursor .db) k)]
+    (.remove whm key-hash))
+  whm)
 
 (defn ^WriteHashMap map-empty!
   "Empties a WriteHashMap by replacing its contents with an empty map.
@@ -162,13 +121,14 @@
 (defn map-contains-key?
   "Checks if a WriteHashMap contains the specified key.
   Returns true if the key exists, false otherwise."
-  [^WriteHashMap whm key]
-  (not (nil? (.getCursor whm (conversion/db-key key)))))
+  [^ReadHashMap whm key]
+  (let [key-hash (conversion/db-key-hash (-> whm .cursor .db) key)]
+    (not (nil? (.getKeyCursor whm key-hash)))))
 
 (defn map-item-count-iterated
   "Returns the number of keys in the map by iterating.
   The count includes internal keys if any."
-  [^ReadHashMap rhm]
+  [^Iterable rhm]
   (let [it (.iterator rhm)]
     (loop [cnt 0]
       (if (.hasNext it)
@@ -180,76 +140,71 @@
 (defn map-item-count
   "Returns the number of key/vals in the map."
   [^ReadHashMap rhm]
-  (if *enable-map-fast-count?*
-    (map-item-count-stored rhm)
+  (if (instance? ReadCountedHashMap rhm)
+    (.count ^ReadCountedHashMap rhm)
     (map-item-count-iterated rhm)))
 
 (defn map-read-cursor
   "Gets a read cursor for the specified key in a ReadHashMap.
   Returns the cursor if the key exists, nil otherwise."
   [^ReadHashMap rhm key]
-  (.getCursor rhm (conversion/db-key key)))
+  (let [key-hash (conversion/db-key-hash (-> rhm .cursor .db) key)]
+    (.getCursor rhm key-hash)))
+
 
 (defn map-write-cursor
   "Gets a write cursor for the specified key in a WriteHashMap.
   Creates the key if it doesn't exist."
   [^WriteHashMap whm key]
-  (.putCursor whm (conversion/db-key key)))
+  (let [key-hash (conversion/db-key-hash (-> whm .cursor .db) key)]
+    (.putCursor whm key-hash)))
 
 ;; ============================================================================
 ;; Set Operations  
 ;; ============================================================================
 
+(defn set-item-count
+  "Returns the number of values in the set."
+  [^ReadHashSet rhs]
+  (if (instance? ReadCountedHashSet rhs)
+    (.count ^ReadCountedHashSet rhs)
+    (map-item-count-iterated rhs)))
+
 (defn set-assoc-value!
-  "Adds a value to a set (implemented as a WriteHashMap).
-  Uses the value's hashCode as the key and the value itself as the value.
-  Only adds the value if it doesn't already exist (based on hashCode).
-  Returns the modified WriteHashMap."
-  [^WriteHashMap whm v]
-  (let [hash-code (if v (.hashCode v) 0)]
-    (let [cursor (.putCursor whm (conversion/db-key hash-code))
-          new? (= (-> cursor .slot .tag) Tag/NONE)]
-      (when new?
-        ;; Only write value when the hashCode key doesn't exist
-        (.write cursor (conversion/v->slot! cursor v))
-        (update-map-item-count! whm inc))
-      whm)))
+  "Adds a value to a set."
+  [^WriteHashSet whs v]
+  (let [hash-code (conversion/db-key-hash (-> whs .cursor .db) v)
+        cursor    (.putCursor whs hash-code)]
+    (.writeIfEmpty cursor (conversion/v->slot! cursor v))
+    whs))
 
-(defn ^WriteHashMap mark-as-set!
-  "Marks a WriteHashMap as being a set by adding an internal marker.
-  This allows the system to distinguish between maps and sets.
-  Returns the modified WriteHashMap."
-  [^WriteHashMap whm]
-  (let [is-set-key (conversion/db-key (internal-keys :is-set?))]
-    (-> whm
-        (.putCursor is-set-key)
-        (.write (conversion/primitive-for 1)))
-    whm))
+(defn set-disj-value!
+  "Removes a value from a set"
+  [^WriteHashSet whs v]
+  (let [hash-code (conversion/db-key-hash (-> whs .cursor .db) v)]
+    (.remove whs hash-code)
+    whs))
 
-(defn ^WriteHashMap init-hash-set!
-  "Initializes a new WriteHashMap as a set.
-  Creates a WriteHashMap and marks it as a set using the internal marker.
-  Returns the newly created WriteHashMap configured as a set."
-  [^WriteCursor cursor]
-  (let [whm (WriteHashMap. cursor)]
-    (mark-as-set! whm)
-    whm))
+(defn set-contains?
+  "Returns true if `v` is in the set."
+  [rhs v]
+  (let [hash-code (conversion/db-key-hash (-> rhs .-cursor .-db) v)
+        cursor    (.getCursor rhs hash-code)]
+    (some? cursor)))
 
 (defn ^WriteHashMap set-empty!
-  "Empties a set (WriteHashMap) and re-initializes it as an empty set.
-  Clears all values and re-adds the internal set marker.
-  Returns the emptied and re-initialized WriteHashMap."
-  [^WriteHashMap whm]
-  (map-empty! whm)
-  (init-hash-set! (.cursor whm))
-  whm)
+  "Replaces the whs value with an empty set."
+  [^WriteHashSet whs]
+  (let [empty-set (conversion/v->slot! (.cursor whs) #{})]
+    (.write ^WriteCursor (.cursor whs) empty-set))
+  whs)
 
 ;; ============================================================================
 ;; Sequence Operations
 ;; ============================================================================
 
 (defn map-seq
-  "Return a lazy seq of key-value MapEntry pairs, skipping hidden keys."
+  "Return a lazy seq of key-value MapEntry pairs."
   [^ReadHashMap rhm read-from-cursor]
   (let [it (.iterator rhm)]
     (letfn [(step []
@@ -257,11 +212,22 @@
                 (when (.hasNext it)
                   (let [cursor (.next it)
                         kv     (.readKeyValuePair cursor)
-                        k      (conversion/read-bytes-with-format-tag (.-keyCursor kv))]
-                    (if (contains? hidden-keys k)
-                      (step)
-                      (let [v (read-from-cursor (.-valueCursor kv))]
-                        (cons (clojure.lang.MapEntry. k v) (step))))))))]
+                        k      (read-from-cursor (.-keyCursor kv))]
+                    (let [v (read-from-cursor (.-valueCursor kv))]
+                      (cons (clojure.lang.MapEntry. k v) (step)))))))]
+      (step))))
+
+(defn set-seq
+  "Return a lazy seq values from the set."
+  [rhm read-from-cursor]
+  (let [it (.iterator rhm)]
+    (letfn [(step []
+              (lazy-seq
+                (when (.hasNext it)
+                  (let [cursor (.next it)
+                        kv     (.readKeyValuePair cursor)
+                        v      (read-from-cursor (.-keyCursor kv))]
+                    (cons v (step))))))]
       (step))))
 
 (defn array-seq
@@ -269,11 +235,11 @@
   Uses the provided read-from-cursor function to convert cursors to values.
   Returns a lazy sequence of the array elements."
   [^ReadArrayList ral read-from-cursor]
-  (let [iter (.iterator ral)
+  (let [iter      (.iterator ral)
         lazy-iter (fn lazy-iter []
                     (when (.hasNext iter)
                       (let [cursor (.next iter)
-                            value (read-from-cursor cursor)]
+                            value  (read-from-cursor cursor)]
                         (lazy-seq (cons value (lazy-iter))))))]
     (lazy-iter)))
 
@@ -282,11 +248,11 @@
   Uses the provided read-from-cursor function to convert cursors to values.
   Returns a lazy sequence of the linked array elements."
   [^ReadLinkedArrayList rlal read-from-cursor]
-  (let [iter (.iterator rlal)
+  (let [iter      (.iterator rlal)
         lazy-iter (fn lazy-iter []
                     (when (.hasNext iter)
                       (let [cursor (.next iter)
-                            value (read-from-cursor cursor)]
+                            value  (read-from-cursor cursor)]
                         (lazy-seq (cons value (lazy-iter))))))]
     (lazy-iter)))
 
@@ -296,27 +262,25 @@
   (let [it (.iterator rhm)]
     (loop [result init]
       (if (.hasNext it)
-        (let [cursor (.next it)
-              kv     (.readKeyValuePair cursor)
-              k      (conversion/read-bytes-with-format-tag (.-keyCursor kv))]
-          (if (contains? hidden-keys k)
-            (recur result)
-            (let [v (read-from-cursor (.-valueCursor kv))
-                  new-result (f result k v)]
-              (if (reduced? new-result)
-                @new-result
-                (recur new-result)))))
+        (let [cursor     (.next it)
+              kv         (.readKeyValuePair cursor)
+              k          (read-from-cursor (.-keyCursor kv))
+              v          (read-from-cursor (.-valueCursor kv))
+              new-result (f result k v)]
+          (if (reduced? new-result)
+            @new-result
+            (recur new-result)))
         result))))
 
 (defn array-kv-reduce
   "Efficiently reduces over index-value pairs in a ReadArrayList."
   [^ReadArrayList ral read-from-cursor f init]
   (let [count (.count ral)]
-    (loop [i 0
+    (loop [i      0
            result init]
       (if (< i count)
-        (let [cursor (.getCursor ral i)
-              v (read-from-cursor cursor)
+        (let [cursor     (.getCursor ral i)
+              v          (read-from-cursor cursor)
               new-result (f result i v)]
           (if (reduced? new-result)
             @new-result

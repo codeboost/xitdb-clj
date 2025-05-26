@@ -132,7 +132,6 @@
     (.count wal))
 
   (cons [this o]
-    ;;TODO: Figure out if it is correct to append to the end
     (operations/array-list-append-value! wal (common/unwrap o))
     this)
 

@@ -4,20 +4,22 @@
     [xitdb.util.conversion :as conversion]
     [xitdb.util.operations :as operations])
   (:import
-    [io.github.radarroark.xitdb ReadHashMap WriteCursor WriteHashMap]))
+    [io.github.radarroark.xitdb
+     ReadCountedHashSet ReadCursor ReadHashSet
+     WriteCountedHashSet WriteCursor WriteHashSet]))
 
 (defn set-seq
   [rhm]
   "The cursors used must implement the IReadFromCursor protocol."
-  (map val (operations/map-seq rhm #(common/-read-from-cursor %))))
+  (operations/set-seq rhm common/-read-from-cursor))
 
-(deftype XITDBHashSet [^ReadHashMap rhm]
+(deftype XITDBHashSet [^ReadHashSet rhs]
   clojure.lang.IPersistentSet
   (disjoin [_ k]
     (throw (UnsupportedOperationException. "XITDBHashSet is read-only")))
 
   (contains [this k]
-    (not (nil? (.getCursor rhm (conversion/db-key (if (nil? k) 0 (.hashCode k)))))))
+    (operations/set-contains? rhs k))
 
   (get [this k]
     (when (.contains this k)
@@ -36,11 +38,11 @@
          (every? #(.contains this %) other)))
 
   (count [_]
-    (operations/map-item-count rhm))
+    (operations/set-item-count rhs))
 
   clojure.lang.Seqable
   (seq [_]
-    (set-seq rhm))
+    (set-seq rhs))
 
   clojure.lang.ILookup
   (valAt [this k]
@@ -68,7 +70,7 @@
 
   common/IUnwrap
   (-unwrap [_]
-    rhm)
+    rhs)
 
   Object
   (toString [this]
@@ -84,26 +86,26 @@
     (into #{} (map common/materialize (seq this)))))
 
 ;; Writable version of the set
-(deftype XITDBWriteHashSet [^WriteHashMap whm]
+(deftype XITDBWriteHashSet [^WriteHashSet whs]
   clojure.lang.IPersistentSet
-  (disjoin [this k]
-    (operations/map-dissoc-key! whm (.hashCode k))
+  (disjoin [this v]
+    (operations/set-disj-value! whs (common/unwrap v))
     this)
 
-  (contains [this k]
-    (operations/map-contains-key? whm (.hashCode k)))
+  (contains [this v]
+    (operations/set-contains? whs (common/unwrap v)))
 
   (get [this k]
-    (when (.contains this k)
+    (when (.contains this (common/unwrap k))
       k))
 
   clojure.lang.IPersistentCollection
   (cons [this o]
-    (operations/set-assoc-value! whm (common/unwrap o))
+    (operations/set-assoc-value! whs (common/unwrap o))
     this)
 
   (empty [this]
-    (operations/set-empty! whm)
+    (operations/set-empty! whs)
     this)
 
   (equiv [this other]
@@ -112,11 +114,11 @@
          (every? #(.contains this %) other)))
 
   (count [_]
-    (operations/map-item-count whm))
+    (operations/set-item-count whs))
 
   clojure.lang.Seqable
   (seq [_]
-    (set-seq whm))
+    (set-seq whs))
 
   clojure.lang.ILookup
   (valAt [this k]
@@ -129,11 +131,11 @@
 
   common/ISlot
   (-slot [_]
-    (-> whm .cursor .slot))
+    (-> whs .cursor .slot))
 
   common/IUnwrap
   (-unwrap [_]
-    whm)
+    whs)
 
   Object
   (toString [_]
@@ -141,8 +143,13 @@
 
 ;; Constructor functions
 (defn xwrite-hash-set [^WriteCursor write-cursor]
-  (let [whm (operations/init-hash-set! write-cursor)]
-    (->XITDBWriteHashSet whm)))
+  (->XITDBWriteHashSet (WriteHashSet. write-cursor)))
 
-(defn xhash-set [^ReadHashMap read-cursor]
-  (->XITDBHashSet (ReadHashMap. read-cursor)))
+(defn xhash-set [^ReadCursor read-cursor]
+  (->XITDBHashSet (ReadHashSet. read-cursor)))
+
+(defn xwrite-hash-set-counted [^WriteCursor write-cursor]
+  (->XITDBWriteHashSet (WriteCountedHashSet. write-cursor)))
+
+(defn xhash-set-counted [^ReadCursor cursor]
+  (->XITDBHashSet (ReadCountedHashSet. cursor)))

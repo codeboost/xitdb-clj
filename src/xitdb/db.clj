@@ -1,5 +1,6 @@
 (ns xitdb.db
   (:require
+    [xitdb.common :as common]
     [xitdb.util.conversion :as conversion]
     [xitdb.xitdb-types :as xtypes])
   (:import
@@ -47,6 +48,15 @@
         hasher (Hasher. (MessageDigest/getInstance "SHA-1"))]
     (Database. core hasher)))
 
+(defn v->slot!
+  "Converts a value to a slot which can be written to a cursor.
+  For XITDB* types (which support ISlot), will return `-slot`,
+  for all other types `conversion/v->slot!`"
+  [^WriteCursor cursor v]
+  (if (satisfies? common/ISlot v)
+    (common/-slot v)
+    (conversion/v->slot! cursor v)))
+
 (defn xitdb-swap!
   "Returns history index."
   [db f & args]
@@ -58,7 +68,7 @@
       (fn [^WriteCursor cursor]
         (let [obj (xtypes/read-from-cursor cursor true)]
           (let [retval (apply f (into [obj] args))]
-            (.write cursor (conversion/v->slot! cursor retval))))))))
+            (.write cursor (v->slot! cursor retval))))))))
 
 (defn xitdb-swap-with-lock!
   "Performs the 'swap!' operation while locking `db.lock`.

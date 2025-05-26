@@ -10,7 +10,6 @@
   (testing "Set works"
     (with-db [db (tu/test-db)]
       (reset! db #{1 2 3 4 5})
-
       (swap! db conj 6)
       (swap! db disj 2 3)
 
@@ -88,5 +87,7 @@
       (let [sweets (:sweets @db)]
         (is (true? (contains? sweets nil)))))))
 
-
-
+(deftest HashCodeTest
+  (with-db [db (tu/test-db)]
+    (reset! db #{:one 1 []})
+    (is (= #{:one 1 []} @db))))
