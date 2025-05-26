@@ -3,11 +3,6 @@
     [clojure.test :refer :all]
     [xitdb.test-utils :as tu :refer [with-db]]))
 
-(comment
-  (let [db (tu/test-memory-db-raw)]
-    (reset! db {:foo :bar})
-    @db))
-
 (deftest DatabaseTest
   (with-db [db (tu/test-db)]
     (testing "Resetting to map"
