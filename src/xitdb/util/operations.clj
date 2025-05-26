@@ -95,9 +95,9 @@
   Throws IllegalArgumentException if attempting to associate an internal key.
   Updates the internal count if fast counting is enabled."
   [^WriteHashMap whm k v]
-  (let [hash-value (conversion/db-key-hash (-> whm .cursor .db) k)
-        key-cursor (.putKeyCursor whm hash-value)
-        cursor (.putCursor whm hash-value)]
+  (let [key-hash   (conversion/db-key-hash (-> whm .cursor .db) k)
+        key-cursor (.putKeyCursor whm key-hash)
+        cursor     (.putCursor whm key-hash)]
     (.writeIfEmpty key-cursor (conversion/v->slot! key-cursor k))
     (.write cursor (conversion/v->slot! cursor v))))
 
@@ -106,8 +106,8 @@
   Throws IllegalArgumentException if attempting to remove an internal key.
   Updates the internal count if fast counting is enabled."
   [^WriteHashMap whm k]
-  (let [hash-value (conversion/db-key-hash (-> whm .cursor .db) k)]
-    (.remove whm hash-value))
+  (let [key-hash (conversion/db-key-hash (-> whm .cursor .db) k)]
+    (.remove whm key-hash))
   whm)
 
 (defn ^WriteHashMap map-empty!
@@ -122,8 +122,8 @@
   "Checks if a WriteHashMap contains the specified key.
   Returns true if the key exists, false otherwise."
   [^ReadHashMap whm key]
-  (let [hash-value (conversion/db-key-hash (-> whm .cursor .db) key)]
-    (not (nil? (.getKeyCursor whm hash-value)))))
+  (let [key-hash (conversion/db-key-hash (-> whm .cursor .db) key)]
+    (not (nil? (.getKeyCursor whm key-hash)))))
 
 (defn map-item-count-iterated
   "Returns the number of keys in the map by iterating.
@@ -148,16 +148,16 @@
   "Gets a read cursor for the specified key in a ReadHashMap.
   Returns the cursor if the key exists, nil otherwise."
   [^ReadHashMap rhm key]
-  (let [hash-value (conversion/db-key-hash (-> rhm .cursor .db) key)]
-    (.getCursor rhm hash-value)))
+  (let [key-hash (conversion/db-key-hash (-> rhm .cursor .db) key)]
+    (.getCursor rhm key-hash)))
 
 
 (defn map-write-cursor
   "Gets a write cursor for the specified key in a WriteHashMap.
   Creates the key if it doesn't exist."
   [^WriteHashMap whm key]
-  (let [hash-value (conversion/db-key-hash (-> whm .cursor .db) key)]
-    (.putCursor whm hash-value)))
+  (let [key-hash (conversion/db-key-hash (-> whm .cursor .db) key)]
+    (.putCursor whm key-hash)))
 
 ;; ============================================================================
 ;; Set Operations  
@@ -174,7 +174,7 @@
   "Adds a value to a set."
   [^WriteHashSet whs v]
   (let [hash-code (conversion/db-key-hash (-> whs .cursor .db) v)
-        cursor (.putCursor whs hash-code)]
+        cursor    (.putCursor whs hash-code)]
     (.writeIfEmpty cursor (conversion/v->slot! cursor v))
     whs))
 
@@ -189,7 +189,7 @@
   "Returns true if `v` is in the set."
   [rhs v]
   (let [hash-code (conversion/db-key-hash (-> rhs .-cursor .-db) v)
-        cursor (.getCursor rhs hash-code)]
+        cursor    (.getCursor rhs hash-code)]
     (some? cursor)))
 
 (defn ^WriteHashMap set-empty!
@@ -235,11 +235,11 @@
   Uses the provided read-from-cursor function to convert cursors to values.
   Returns a lazy sequence of the array elements."
   [^ReadArrayList ral read-from-cursor]
-  (let [iter (.iterator ral)
+  (let [iter      (.iterator ral)
         lazy-iter (fn lazy-iter []
                     (when (.hasNext iter)
                       (let [cursor (.next iter)
-                            value (read-from-cursor cursor)]
+                            value  (read-from-cursor cursor)]
                         (lazy-seq (cons value (lazy-iter))))))]
     (lazy-iter)))
 
@@ -248,11 +248,11 @@
   Uses the provided read-from-cursor function to convert cursors to values.
   Returns a lazy sequence of the linked array elements."
   [^ReadLinkedArrayList rlal read-from-cursor]
-  (let [iter (.iterator rlal)
+  (let [iter      (.iterator rlal)
         lazy-iter (fn lazy-iter []
                     (when (.hasNext iter)
                       (let [cursor (.next iter)
-                            value (read-from-cursor cursor)]
+                            value  (read-from-cursor cursor)]
                         (lazy-seq (cons value (lazy-iter))))))]
     (lazy-iter)))
 
@@ -265,7 +265,7 @@
         (let [cursor (.next it)
               kv     (.readKeyValuePair cursor)
               k      (read-from-cursor (.-keyCursor kv))]
-          (let [v (read-from-cursor (.-valueCursor kv))
+          (let [v          (read-from-cursor (.-valueCursor kv))
                 new-result (f result k v)]
             (if (reduced? new-result)
               @new-result
@@ -277,11 +277,11 @@
   "Efficiently reduces over index-value pairs in a ReadArrayList."
   [^ReadArrayList ral read-from-cursor f init]
   (let [count (.count ral)]
-    (loop [i 0
+    (loop [i      0
            result init]
       (if (< i count)
-        (let [cursor (.getCursor ral i)
-              v (read-from-cursor cursor)
+        (let [cursor     (.getCursor ral i)
+              v          (read-from-cursor cursor)
               new-result (f result i v)]
           (if (reduced? new-result)
             @new-result
