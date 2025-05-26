@@ -3,10 +3,10 @@
     [xitdb.util.validation :as validation])
   (:import
     [io.github.radarroark.xitdb
-     Database$Bytes Database$Float Database$Int
-     ReadArrayList ReadCursor ReadHashMap ReadCountedHashMap
-     Slot Tag WriteArrayList WriteCursor WriteCountedHashMap
-     WriteHashMap WriteLinkedArrayList]))
+     Database Database$Bytes Database$Float Database$Int
+     ReadArrayList ReadCountedHashSet ReadCursor ReadHashMap ReadCountedHashMap
+     ReadHashSet Slot Tag WriteArrayList WriteCountedHashSet WriteCursor WriteCountedHashMap
+     WriteHashMap WriteHashSet WriteLinkedArrayList]))
 
 (defn xit-tag->keyword
   "Converts a XitDB Tag enum to a corresponding Clojure keyword."
@@ -49,6 +49,13 @@
       (str (namespace key) "/" (name key))
       (name key))
     key))
+
+(defn hash-value ^bytes [^Database jdb v]
+  (let [hash-code (if (nil? v) 0 (.hashCode v))
+        buffer    (java.nio.ByteBuffer/allocate Integer/BYTES)
+        _         (.putInt buffer hash-code)
+        bytes     (.array buffer)]
+    (.digest (.md jdb) bytes)))
 
 (defn ^Slot primitive-for
   "Converts a Clojure primitive value to its corresponding XitDB representation.
@@ -109,12 +116,29 @@
     (instance? WriteHashMap v)
     (-> ^WriteHashMap v .cursor .slot)
 
-    ;;TODO: Confirm that it is correct to return the Read slots
     (instance? ReadHashMap v)
     (-> ^ReadHashMap v .cursor .slot)
 
+    (instance? ReadCountedHashMap v)
+    (-> ^ReadCountedHashMap v .cursor .slot)
+
+    (instance? WriteCountedHashMap v)
+    (-> ^WriteCountedHashMap v .cursor .slot)
+
     (instance? ReadArrayList v)
     (-> ^ReadArrayList v .cursor .slot)
+
+    (instance? ReadHashSet v)
+    (-> ^ReadHashSet v .cursor .slot)
+
+    (instance? ReadCountedHashSet v)
+    (-> ^ReadCountedHashSet v .cursor .slot)
+
+    (instance? WriteHashSet v)
+    (-> ^WriteHashSet v .cursor .slot)
+
+    (instance? WriteCountedHashSet v)
+    (-> ^WriteCountedHashSet v .cursor .slot)
 
     (map? v)
     (do
@@ -238,23 +262,21 @@
   [^WriteCursor cursor m]
   (let [whm (WriteCountedHashMap. cursor)]
     (doseq [[k v] m]
-      (let [cursor (.putCursor whm (db-key k))]
+      (let [hash-value (hash-value (-> cursor .db) k)
+            key-cursor (.putKeyCursor whm hash-value)
+            cursor (.putCursor whm hash-value)]
+        (.writeIfEmpty key-cursor (v->slot! key-cursor k))
         (.write cursor (v->slot! cursor v))))
     (.-cursor whm)))
 
 (defn ^WriteCursor set->WriteCursor!
-  "Creates a hash-map and associates the internal key :is-set? to 1.
-  Map is keyed by the .hashCode of the value, valued by the value :)"
+  "Writes a Clojure set `s` to a XitDB WriteHashSet.
+  Returns the cursor of the created WriteHashSet."
   [^WriteCursor cursor s]
-  (let [whm (WriteHashMap. cursor)
-        ;; Mark as set
-        is-set-key (db-key :%xitdb_set)]
-    (-> whm
-        (.putCursor is-set-key)
-        (.write (primitive-for 1)))
-    ;; Add values  
+  (let [whm (WriteCountedHashSet. cursor)
+        db (-> cursor .db)]
     (doseq [v s]
-      (let [hash-code (if v (.hashCode v) 0)
-            cursor (.putCursor whm (db-key hash-code))]
-        (.write cursor (v->slot! cursor v))))
+      (let [hash-code (hash-value db v)
+            cursor (.putCursor whm hash-code)]
+        (.writeIfEmpty cursor (v->slot! cursor v))))
     (.-cursor whm)))

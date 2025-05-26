@@ -10,7 +10,6 @@
   (testing "Set works"
     (with-db [db (tu/test-db)]
       (reset! db #{1 2 3 4 5})
-
       (swap! db conj 6)
       (swap! db disj 2 3)
 
@@ -89,4 +88,26 @@
         (is (true? (contains? sweets nil)))))))
 
 
+(defn -intersection [s1 s2]
+  (if (< (count s2) (count s1))
+    (recur s2 s1)
+    (reduce (fn [result item]
+              (println "acc:" result "s2:" s2 "item:" item
+                       (type item) "contains?" (contains? s2 item)
+                       (type result)
+                       "result:" (if (contains? s2 item)
+                                   result
+                                   (disj result item)))
+              (if (contains? s2 item)
+                result
+                (disj result item)))
+            s1 s1)))
+(comment
+  (with-db [db (tu/test-db)]
+    (reset! db #{1 2 3 4 5})
+
+    (swap! db set/intersection #{4 5 8})
+
+    #_(is (= #{4 5} @db))
+    #_(is (tu/db-equal-to-atom? db))))
 

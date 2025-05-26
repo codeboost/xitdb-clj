@@ -18,14 +18,14 @@
     (.valAt this key nil))
 
   (valAt [this key not-found]
-    (let [cursor (.getCursor rhm (conversion/db-key key))]
+    (let [cursor (operations/map-read-cursor rhm key)]
       (if (nil? cursor)
         not-found
         (common/-read-from-cursor cursor))))
 
   clojure.lang.Associative
   (containsKey [this key]
-    (not (nil? (.getCursor rhm (conversion/db-key key)))))
+    (operations/map-contains-key? rhm key))
 
   (entryAt [this key]
     (let [v (.valAt this key nil)]

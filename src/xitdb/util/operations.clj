@@ -3,7 +3,7 @@
     [xitdb.util.conversion :as conversion]
     [xitdb.util.validation :as validation])
   (:import
-    [io.github.radarroark.xitdb ReadArrayList ReadCountedHashMap ReadHashMap ReadLinkedArrayList Tag WriteArrayList WriteCursor WriteHashMap WriteLinkedArrayList]))
+    [io.github.radarroark.xitdb Database ReadArrayList ReadCountedHashMap ReadCountedHashSet ReadHashMap ReadHashSet ReadLinkedArrayList Tag WriteArrayList WriteCursor WriteHashMap WriteHashSet WriteLinkedArrayList]))
 
 (def internal-keys
   "Map of logical internal key names to their actual storage keys in XitDB.
@@ -112,12 +112,11 @@
   Throws IllegalArgumentException if attempting to associate an internal key.
   Updates the internal count if fast counting is enabled."
   [^WriteHashMap whm k v]
-  (when (contains? hidden-keys k)
-    (throw (IllegalArgumentException. (str "Cannot assoc key. " k ". It is reserved for internal use."))))
-
-  (let [cursor (.putCursor whm (conversion/db-key k))]
-    (.write cursor (conversion/v->slot! cursor v))
-    whm))
+  (let [hash-value (conversion/hash-value (-> whm .cursor .db) k)
+        key-cursor (.putKeyCursor whm hash-value)
+        cursor (.putCursor whm hash-value)]
+    (.writeIfEmpty key-cursor (conversion/v->slot! key-cursor k))
+    (.write cursor (conversion/v->slot! cursor v))))
 
 (defn map-dissoc-key!
   "Removes a key-value pair from a WriteHashMap.
@@ -127,7 +126,8 @@
   (when (contains? hidden-keys k)
     (throw (IllegalArgumentException. (str "Cannot dissoc key. " k ". It is reserved for internal use."))))
 
-  (.remove whm (conversion/db-key k))
+  (let [hash-value (conversion/hash-value (-> whm .cursor .db) k)]
+    (.remove whm hash-value))
   whm)
 
 (defn ^WriteHashMap map-empty!
@@ -141,13 +141,14 @@
 (defn map-contains-key?
   "Checks if a WriteHashMap contains the specified key.
   Returns true if the key exists, false otherwise."
-  [^WriteHashMap whm key]
-  (not (nil? (.getCursor whm (conversion/db-key key)))))
+  [^ReadHashMap whm key]
+  (let [hash-value (conversion/hash-value (-> whm .cursor .db) key)]
+    (not (nil? (.getKeyCursor whm hash-value)))))
 
 (defn map-item-count-iterated
   "Returns the number of keys in the map by iterating.
   The count includes internal keys if any."
-  [^ReadHashMap rhm]
+  [^Iterable rhm]
   (let [it (.iterator rhm)]
     (loop [cnt 0]
       (if (.hasNext it)
@@ -167,60 +168,57 @@
   "Gets a read cursor for the specified key in a ReadHashMap.
   Returns the cursor if the key exists, nil otherwise."
   [^ReadHashMap rhm key]
-  (.getCursor rhm (conversion/db-key key)))
+  (let [hash-value (conversion/hash-value (-> rhm .cursor .db) key)]
+    (.getCursor rhm hash-value)))
+
 
 (defn map-write-cursor
   "Gets a write cursor for the specified key in a WriteHashMap.
   Creates the key if it doesn't exist."
   [^WriteHashMap whm key]
-  (.putCursor whm (conversion/db-key key)))
+  (let [hash-value (conversion/hash-value (-> whm .cursor .db) key)]
+    (.putCursor whm hash-value)))
 
 ;; ============================================================================
 ;; Set Operations  
 ;; ============================================================================
+
+(defn set-item-count
+  "Returns the number of key/vals in the map."
+  [^ReadHashSet rhs]
+  (if (instance? ReadCountedHashSet rhs)
+    (.count ^ReadCountedHashSet rhs)
+    (map-item-count-iterated rhs)))
 
 (defn set-assoc-value!
   "Adds a value to a set (implemented as a WriteHashMap).
   Uses the value's hashCode as the key and the value itself as the value.
   Only adds the value if it doesn't already exist (based on hashCode).
   Returns the modified WriteHashMap."
-  [^WriteHashMap whm v]
-  (let [hash-code (if v (.hashCode v) 0)]
-    (let [cursor (.putCursor whm (conversion/db-key hash-code))
-          new? (= (-> cursor .slot .tag) Tag/NONE)]
-      (when new?
-        ;; Only write value when the hashCode key doesn't exist
-        (.write cursor (conversion/v->slot! cursor v)))
-      whm)))
+  [^WriteHashSet whs v]
+  (let [hash-code (conversion/hash-value (-> whs .cursor .db) v)
+        cursor (.putCursor whs hash-code)]
+    (.writeIfEmpty cursor (conversion/v->slot! cursor v))
+    whs))
 
-(defn ^WriteHashMap mark-as-set!
-  "Marks a WriteHashMap as being a set by adding an internal marker.
-  This allows the system to distinguish between maps and sets.
-  Returns the modified WriteHashMap."
-  [^WriteHashMap whm]
-  (let [is-set-key (conversion/db-key (internal-keys :is-set?))]
-    (-> whm
-        (.putCursor is-set-key)
-        (.write (conversion/primitive-for 1)))
-    whm))
+(defn set-disj-value!
+  [^WriteHashSet whs v]
+  (let [hash-code (conversion/hash-value (-> whs .cursor .db) v)]
+    (.remove whs hash-code)
+    whs))
 
-(defn ^WriteHashMap init-hash-set!
-  "Initializes a new WriteHashMap as a set.
-  Creates a WriteHashMap and marks it as a set using the internal marker.
-  Returns the newly created WriteHashMap configured as a set."
-  [^WriteCursor cursor]
-  (let [whm (WriteHashMap. cursor)]
-    (mark-as-set! whm)
-    whm))
+(defn set-contains?
+  [rhs v]
+  (let [hash-code (conversion/hash-value (-> rhs .-cursor .-db) v)
+        cursor (.getCursor rhs hash-code)]
+    (some? cursor)))
 
 (defn ^WriteHashMap set-empty!
-  "Empties a set (WriteHashMap) and re-initializes it as an empty set.
-  Clears all values and re-adds the internal set marker.
-  Returns the emptied and re-initialized WriteHashMap."
-  [^WriteHashMap whm]
-  (map-empty! whm)
-  (init-hash-set! (.cursor whm))
-  whm)
+  ""
+  [^WriteHashSet whs]
+  (let [empty-set (conversion/v->slot! (.cursor whs) #{})]
+    (.write ^WriteCursor (.cursor whs) empty-set))
+  whs)
 
 ;; ============================================================================
 ;; Sequence Operations
@@ -228,18 +226,31 @@
 
 (defn map-seq
   "Return a lazy seq of key-value MapEntry pairs, skipping hidden keys."
-  [^ReadCountedHashMap rhm read-from-cursor]
+  [^ReadHashMap rhm read-from-cursor]
   (let [it (.iterator rhm)]
     (letfn [(step []
               (lazy-seq
                 (when (.hasNext it)
                   (let [cursor (.next it)
                         kv     (.readKeyValuePair cursor)
-                        k      (conversion/read-bytes-with-format-tag (.-keyCursor kv))]
+                        k      (read-from-cursor (.-keyCursor kv))]
                     (if (contains? hidden-keys k)
                       (step)
                       (let [v (read-from-cursor (.-valueCursor kv))]
                         (cons (clojure.lang.MapEntry. k v) (step))))))))]
+      (step))))
+
+(defn set-seq
+  "Return a lazy seq values from the set."
+  [rhm read-from-cursor]
+  (let [it (.iterator rhm)]
+    (letfn [(step []
+              (lazy-seq
+                (when (.hasNext it)
+                  (let [cursor (.next it)
+                        kv     (.readKeyValuePair cursor)
+                        v      (read-from-cursor (.-keyCursor kv))]
+                    (cons v (step))))))]
       (step))))
 
 (defn array-seq
