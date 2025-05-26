@@ -31,7 +31,7 @@
   {:keyword     "kw"
    :boolean     "bl"
    :key-integer "ki"
-   :nil         "nl" ;; TODO: Could use Tag/NONE instead
+   :nil         "nl"                                        ;; TODO: Could use Tag/NONE instead
    :inst        "in"
    :date        "da"})
 
@@ -175,14 +175,14 @@
   [k]
   (cond
     (integer? k)
-    (database-bytes (str k) "ki") ;integer keys are stored as strings with 'ki' format tag
+    (database-bytes (str k) "ki")                           ;integer keys are stored as strings with 'ki' format tag
     :else
     (primitive-for k)))
 
 (defn read-bytes-with-format-tag [^ReadCursor cursor]
   (let [bytes-obj (.readBytesObject cursor nil)
-        str (String. (.value bytes-obj))
-        fmt-tag (some-> bytes-obj .formatTag String.)]
+        str       (String. (.value bytes-obj))
+        fmt-tag   (some-> bytes-obj .formatTag String.)]
     (cond
 
       (= fmt-tag (fmt-tag-value :keyword))
@@ -270,7 +270,7 @@
     (doseq [[k v] m]
       (let [hash-value (db-key-hash (-> cursor .db) k)
             key-cursor (.putKeyCursor whm hash-value)
-            cursor (.putCursor whm hash-value)]
+            cursor     (.putCursor whm hash-value)]
         (.writeIfEmpty key-cursor (v->slot! key-cursor k))
         (.write cursor (v->slot! cursor v))))
     (.-cursor whm)))
@@ -280,9 +280,9 @@
   Returns the cursor of the created WriteHashSet."
   [^WriteCursor cursor s]
   (let [whm (WriteCountedHashSet. cursor)
-        db (-> cursor .db)]
+        db  (-> cursor .db)]
     (doseq [v s]
       (let [hash-code (db-key-hash db v)
-            cursor (.putCursor whm hash-code)]
+            cursor    (.putCursor whm hash-code)]
         (.writeIfEmpty cursor (v->slot! cursor v))))
     (.-cursor whm)))
