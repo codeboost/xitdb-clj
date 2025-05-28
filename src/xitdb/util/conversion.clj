@@ -7,7 +7,9 @@
      ReadArrayList ReadCountedHashSet ReadCursor ReadHashMap ReadCountedHashMap
      ReadHashSet Slot Tag WriteArrayList WriteCountedHashSet WriteCursor WriteCountedHashMap
      WriteHashMap WriteHashSet WriteLinkedArrayList]
-    [java.nio ByteBuffer]))
+    [java.io OutputStream OutputStreamWriter]
+    [java.nio ByteBuffer]
+    [java.security DigestOutputStream]))
 
 (defn xit-tag->keyword
   "Converts a XitDB Tag enum to a corresponding Clojure keyword."
@@ -57,32 +59,32 @@
   ^bytes [^Database jdb v]
   (if (nil? v)
     (byte-array (-> jdb .md .getDigestLength))
-    (do
+    (let [digest (.md jdb)]
       ;; add type name
-      (.update (.md jdb) (-> v .getClass .getCanonicalName (.getBytes "UTF-8")))
+      (.update digest (-> v .getClass .getCanonicalName (.getBytes "UTF-8")))
       ;; add null byte as separator
-      (.update (.md jdb) (byte-array 1))
+      (.update digest (byte-array 1))
       ;; add the value
       (cond
         (validation/lazy-seq? v)
         (throw (IllegalArgumentException. "Lazy sequences can be infinite and not allowed!"))
 
         (bytes? v)
-        (.update (.md jdb) v)
+        (.update digest v)
 
         (instance? Database$Bytes v)
-        (.update (.md jdb) (.value v))
+        (.update digest (.value v))
 
         (coll? v)
-        (with-open [os (java.security.DigestOutputStream. (java.io.OutputStream/nullOutputStream) (.md jdb))]
-          (with-open [writer (java.io.OutputStreamWriter. os)]
+        (with-open [os (DigestOutputStream. (OutputStream/nullOutputStream) digest)]
+          (with-open [writer (OutputStreamWriter. os)]
             (binding [*out* writer]
               (pr v))))
 
         :else
-        (.update (.md jdb) (.getBytes (str v) "UTF-8")))
+        (.update digest (.getBytes (str v) "UTF-8")))
       ;; finish hash
-      (.digest (.md jdb)))))
+      (.digest digest))))
 
 (defn ^Slot primitive-for
   "Converts a Clojure primitive value to its corresponding XitDB representation.
