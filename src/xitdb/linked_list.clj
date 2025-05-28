@@ -134,22 +134,6 @@
       (common/-read-from-cursor (.putCursor wlal i))
       not-found))
 
-  clojure.lang.Associative
-  (assoc [this k v]
-    (when-not (integer? k)
-      (throw (IllegalArgumentException. "Key must be integer")))
-    ;; LinkedArrayList doesn't support random access assoc operations
-    ;; This might require a different implementation
-    (throw (UnsupportedOperationException. "LinkedArrayList doesn't support random access"))
-    this)
-
-  (containsKey [this k]
-    (and (integer? k) (>= k 0) (< k (.count wlal))))
-
-  (entryAt [this k]
-    (when (.containsKey this k)
-      (clojure.lang.MapEntry. k (.valAt this k))))
-
   clojure.lang.ILookup
   (valAt [this k]
     (.valAt this k nil))
