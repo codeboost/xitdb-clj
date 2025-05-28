@@ -28,6 +28,16 @@
     (= tag Tag/FLOAT) :float
     :else :unknown))
 
+(defn fmt-tag-keyword [v]
+  (cond
+    (keyword? v) :keyword
+    (boolean? v) :boolean
+    (integer? v) :key-integer
+    (instance? java.time.Instant v) :inst
+    (instance? java.util.Date v) :date
+    (coll? v) :coll
+    (string? v) :string))
+
 ;; map of logical tag -> string used as formatTag in the Bytes record.
 (def fmt-tag-value
   {:keyword     "kw"
@@ -35,7 +45,9 @@
    :key-integer "ki"
    :nil         "nl"                                        ;; TODO: Could use Tag/NONE instead
    :inst        "in"
-   :date        "da"})
+   :date        "da"
+   :coll        "co"
+   :string      "st"})
 
 (def true-str "#t")
 (def false-str "#f")
@@ -59,11 +71,11 @@
   ^bytes [^Database jdb v]
   (if (nil? v)
     (byte-array (-> jdb .md .getDigestLength))
-    (let [digest (.md jdb)]
-      ;; add type name
-      (.update digest (-> v .getClass .getCanonicalName (.getBytes "UTF-8")))
-      ;; add null byte as separator
-      (.update digest (byte-array 1))
+    (let [digest (.md jdb)
+          fmt-tag (or (some-> v fmt-tag-keyword fmt-tag-value)
+                      (throw (ex-info (str "Format tag not found for type: " (type v)) {})))]
+      ;; add format tag
+      (.update digest (.getBytes fmt-tag "UTF-8"))
       ;; add the value
       (cond
         (validation/lazy-seq? v)
