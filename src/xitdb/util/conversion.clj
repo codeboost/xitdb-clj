@@ -56,12 +56,33 @@
   Uses the MessageDigest from the database."
   ^bytes [^Database jdb v]
   (if (nil? v)
-    (byte-array (-> jdb .-header .hashSize))
-    (let [hash-code (hash v)
-          buffer    (ByteBuffer/allocate Integer/BYTES)
-          _         (.putInt buffer hash-code)
-          bytes     (.array buffer)]
-      (.digest (.md jdb) bytes))))
+    (byte-array (-> jdb .md .getDigestLength))
+    (do
+      ;; add type name
+      (.update (.md jdb) (-> v .getClass .getCanonicalName (.getBytes "UTF-8")))
+      ;; add null byte as separator
+      (.update (.md jdb) (byte-array 1))
+      ;; add the value
+      (cond
+        (validation/lazy-seq? v)
+        (throw (IllegalArgumentException. "Lazy sequences can be infinite and not allowed!"))
+
+        (bytes? v)
+        (.update (.md jdb) v)
+
+        (instance? Database$Bytes v)
+        (.update (.md jdb) (.value v))
+
+        (coll? v)
+        (with-open [os (java.security.DigestOutputStream. (java.io.OutputStream/nullOutputStream) (.md jdb))]
+          (with-open [writer (java.io.OutputStreamWriter. os)]
+            (binding [*out* writer]
+              (pr v))))
+
+        :else
+        (.update (.md jdb) (.getBytes (str v) "UTF-8")))
+      ;; finish hash
+      (.digest (.md jdb)))))
 
 (defn ^Slot primitive-for
   "Converts a Clojure primitive value to its corresponding XitDB representation.

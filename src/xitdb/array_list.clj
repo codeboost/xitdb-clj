@@ -44,12 +44,9 @@
       (common/-read-from-cursor cursor)))
 
   (nth [_ i not-found]
-    (try
-      (let [cursor (.getCursor ral (long i))]
-        (if cursor
-          (common/-read-from-cursor cursor)
-          not-found))
-      (catch Exception _
+    (let [cursor (.getCursor ral (long i))]
+      (if cursor
+        (common/-read-from-cursor cursor)
         not-found)))
 
   clojure.lang.ILookup
