@@ -25,7 +25,7 @@ Code is still in early stages of 'alpha', things might change or break in future
 
 ## Architecture
 
-XitDB-Clj builds on `xitdb-java` which implements:
+`xitdb-clj` builds on `xitdb-java` which implements:
 
 - **Hash Array Mapped Trie (HAMT)** - For efficient map and set operations
 - **RRB Trees** - For vector operations with good concatenation performance
