@@ -60,7 +60,7 @@
   [^WriteLinkedArrayList wlal v]
   (let [cursor (.appendCursor wlal)]
     (.write cursor (conversion/v->slot! cursor v))
-    nil))
+    wlal))
 
 (defn linked-array-list-insert-value!
   "Inserts a value at position pos in a WriteLinkedArrayList.
@@ -68,15 +68,15 @@
   [^WriteLinkedArrayList wlal pos v]
   (let [cursor (-> wlal .cursor)]
     (.insert wlal pos (conversion/v->slot! cursor v)))
-  nil)
+  wlal)
 
 (defn linked-array-list-pop!
   "Removes the first element from a WriteLinkedArrayList.
   This is a stack-like operation (LIFO) for linked lists.
-  Returns nil."
+  Returns the modified WriteLinkedArrayList."
   [^WriteLinkedArrayList wlal]
   (.remove wlal 0)
-  nil)
+  wlal)
 
 ;; ============================================================================
 ;; Map Operations
@@ -99,7 +99,8 @@
         key-cursor (.putKeyCursor whm key-hash)
         cursor     (.putCursor whm key-hash)]
     (.writeIfEmpty key-cursor (conversion/v->slot! key-cursor k))
-    (.write cursor (conversion/v->slot! cursor v))))
+    (.write cursor (conversion/v->slot! cursor v))
+    whm))
 
 (defn map-dissoc-key!
   "Removes a key-value pair from a WriteHashMap.
