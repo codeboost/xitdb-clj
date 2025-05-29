@@ -200,8 +200,8 @@ Add to your `deps.edn`:
 
 ## Performance Characteristics
 
-- **Read Operations**: O(log₃₂ n) for maps and vectors due to trie structure
-- **Write Operations**: O(log₃₂ n) with structural sharing for efficiency
+- **Read Operations**: O(log16 n) for maps and vectors due to trie structure
+- **Write Operations**: O(log16 n) with structural sharing for efficiency
 - **Memory Usage**: Minimal overhead with automatic deduplication of identical subtrees
 - **Concurrency**: Thread-safe with optimized read-write locks
 
