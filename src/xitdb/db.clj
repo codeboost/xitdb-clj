@@ -99,7 +99,7 @@
             ^RandomAccessFile file (.get field core)]
         (.close file)))))
 
-(defn read-history [db]
+(defn ^ReadArrayList read-history [^Database db]
   (ReadArrayList. (-> db .rootCursor)))
 
 (defn history-index [xdb]

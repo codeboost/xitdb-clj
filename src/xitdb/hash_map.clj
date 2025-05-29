@@ -29,8 +29,8 @@
     (operations/map-contains-key? rhm key))
 
   (entryAt [this key]
-    (let [v (.valAt this key nil)]
-      (when-not (nil? v)
+    (when (.containsKey this key)
+      (let [v (.valAt this key nil)]
         (clojure.lang.MapEntry. key v))))
 
   (assoc [this k v]
