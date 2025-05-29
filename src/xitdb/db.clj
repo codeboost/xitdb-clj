@@ -93,11 +93,8 @@
 (defn- close-db-internal! [^Database db]
   (let [core (-> db .-core)]
     (when (instance? CoreFile core)
-      ;;TODO: is this the best way to do it?
-      (let [field                  (.getDeclaredField CoreFile "file")
-            _                      (.setAccessible field true)
-            ^RandomAccessFile file (.get field core)]
-        (.close file)))))
+      (.close ^RandomAccessFile (-> db .-core .file)))))
+
 
 (defn ^ReadArrayList read-history [^Database db]
   (ReadArrayList. (-> db .rootCursor)))
