@@ -14,7 +14,7 @@
 
 ## Overview
 
-`xitdb-clj` is a database for efficiently storing and retrieving immutable, persistent data structures. 
+`xitdb-clj` is a embedded database for efficiently storing and retrieving immutable, persistent data structures. 
 
 It is a Clojure interface for [xitdb-java](https://github.com/radarroark/xitdb-java), 
 itself a port of [xitdb](https://github.com/radarroark/xitdb), written in Zig.
@@ -26,12 +26,11 @@ itself a port of [xitdb](https://github.com/radarroark/xitdb), written in Zig.
 - Embeddable, tiny library.
 - Supports writing to a file as well as purely in-memory use.
 - Each transaction (done via `swap!`) efficiently creates a new "copy" of the database, and past copies can still be read from.
-- Reading/Writing to the database is extremely efficient, only the necessary nodes are read or written.
+- Reading/Writing to the database is efficient, only the necessary nodes are read or written.
 - Thread safe. Multiple readers, one writer.
 - Append-only. The data you are writing is invisible to any reader until the very last step, when the top-level history header is updated.
-- No dependencies besides `clojure.core` and [xitdb-java](https://github.com/radarroark/xitdb-java).
 - All heavy lifting done by the bare-to-the-jvm java library.
-- Database files accessible from many other languages - all JVM based or languages which can natively interface with Zig (C, C++, Python, Rust, Go, etc)
+- Database files can be used from other languages, via [xitdb Java library](https://github.com/radarroark/xitdb-java) or the [xitdb Zig library](https://github.com/radarroark/xitdb)
 
 ## Architecture
 
@@ -175,10 +174,7 @@ values of the database, by setting the `*return-history?*` binding to `true`.
 Add to your `deps.edn`:
 
 ```clojure
-{:deps {org.clojure/clojure        {:mvn/version "1.12.0"}
-        io.github.radarroark/xitdb {:mvn/version "0.20.0"}
-        ;; Add your local xitdb-clj dependency here
-        }}
+{:deps {io.github.codeboost/xitdb-clj     {:mvn/version "0.1.0"}}}
 ```
 
 ## Examples

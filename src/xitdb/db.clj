@@ -41,6 +41,9 @@
                                  (conversion/v->slot! cursor new-value))))
 
 (defn open-database
+  "Opens database `filename`.
+  If `filename` is `:memory`, returns a memory based db.
+  open-mode can be `r` or `rw`."
   [filename ^String open-mode]
   (let [core   (if (= filename :memory)
                  (CoreMemory. (RandomAccessMemory.))
@@ -58,7 +61,11 @@
     (conversion/v->slot! cursor v)))
 
 (defn xitdb-swap!
-  "Returns history index."
+  "Starts a new transaction and calls `f` with the value at root.
+  `f` will receive a XITDBWrite* type (db) and `args`.
+  Actions on the XITDBWrite* type (like `assoc`) will mutate it.
+  Return value of `f` is written at (root) cursor.
+  Returns the transaction history index."
   [db f & args]
   (let [history (db-history db)
         slot (.getSlot history -1)]
@@ -90,16 +97,22 @@
       (finally
         (.unlock lock)))))
 
-(defn- close-db-internal! [^Database db]
+(defn- close-db-internal!
+  "Closes the db file. Does nothing if it's a memory db"
+  [^Database db]
   (let [core (-> db .-core)]
     (when (instance? CoreFile core)
       (.close ^RandomAccessFile (-> db .-core .file)))))
 
 
-(defn ^ReadArrayList read-history [^Database db]
+(defn ^ReadArrayList read-history
+  "Returns the read only transaction history array."
+  [^Database db]
   (ReadArrayList. (-> db .rootCursor)))
 
-(defn history-index [xdb]
+(defn history-index
+  "Returns the current size of the transaction history array."
+  [xdb]
   (.count (read-history (-> xdb .tldbro .get))))
 
 (deftype XITDBDatabase [tldbro rwdb lock]
@@ -143,7 +156,11 @@
     (apply xitdb-swap-with-lock! (concat [this f x y] args))))
 
 (defn xit-db
-  ""
+  "Returns a new XITDBDatabase which can be used to query and transact data.
+  `filename` can be `:memory` or the name of a file on the filesystem.
+  If the file does not exist, it will be created.
+  The returned database handle can be used from multiple threads.
+  Reads can run in parallel, transactions (eg. `swap!`) will only allow one writer at a time."
   [filename]
   (if (= :memory filename)
     (let [memdb  (open-database :memory "rw")
