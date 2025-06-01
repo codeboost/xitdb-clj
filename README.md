@@ -1,3 +1,17 @@
+> **⚠️ Alpha Software - Work in Progress**
+>
+> This project is in early development and rapidly evolving. 
+> Expect breaking changes, rough edges, and incomplete documentation.
+>
+> **🤝 Help Wanted!** If you find this useful, please consider contributing:
+> - Report bugs and issues you encounter
+> - Suggest improvements or new features
+> - Submit pull requests for fixes or enhancements
+> - Share your configuration patterns and workflows
+> - Help improve documentation and examples
+>
+> Your feedback and contributions will help make this tool better for the entire Clojure community!
+
 ## Overview
 
 `xitdb-clj` is a database for efficiently storing and retrieving immutable, persistent data structures. 
@@ -6,10 +20,6 @@ It is a Clojure interface for [xitdb-java](https://github.com/radarroark/xitdb-j
 itself a port of [xitdb](https://github.com/radarroark/xitdb), written in Zig.
 
 `xitdb-clj` provides atom-like semantics when working with the database from Clojure.
-
-### Experimental
-
-Code is still in early stages of 'alpha', things might change or break in future versions.
 
 ## Main characteristics
  
@@ -61,6 +71,27 @@ For the programmer, a `xitdb` database behaves exactly like a Clojure atom.
 (get-in @db [:users "alice" :age])
 ;; => 31
 ```
+One important distinction to the Clojure atom is that inside a transaction (eg. a `swap!`), 
+'change' operations on the received db argument are mutating it.
+
+```clojure
+(with-db [db (xdb/xit-db :memory)]
+  (reset! db {})
+  (swap! db (fn [db]
+              (let [db1 (assoc db :foo :bar)]
+                (println "db1:" db1)
+                (println "db:" db)))))
+```
+prints 
+```
+db1: {:foo :bar}
+db: {:foo :bar}
+```
+As you can see, `(assoc db :foo :bar)` changed the value of `db`, in contrast
+to how it works with a Clojure persistent map. This is because, inside `swap!`, 
+`db` is referencing a WriteCursor, which writes the value to the underlying 
+ArrayList or HashMap objects inside `xit-db-java`.
+The value will actually be commited to the database when the `swap!` function returns.
 
 ## Data structures are read lazily from the database
 
