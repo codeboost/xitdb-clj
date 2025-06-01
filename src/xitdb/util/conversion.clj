@@ -35,7 +35,6 @@
     (integer? v) :key-integer
     (instance? java.time.Instant v) :inst
     (instance? java.util.Date v) :date
-    (coll? v) :coll
     (string? v) :string))
 
 ;; map of logical tag -> string used as formatTag in the Bytes record.
@@ -46,7 +45,6 @@
    :nil         "nl"                                        ;; TODO: Could use Tag/NONE instead
    :inst        "in"
    :date        "da"
-   :coll        "co"
    :string      "st"})
 
 (def true-str "#t")
@@ -204,44 +202,6 @@
     :else
     (primitive-for v)))
 
-(defn ^Database$Bytes db-key
-  "Converts k from a Clojure type to a Database$Bytes representation to be used in
-  cursor functions."
-  [k]
-  (cond
-    (integer? k)
-    (database-bytes (str k) "ki")                           ;integer keys are stored as strings with 'ki' format tag
-    :else
-    (primitive-for k)))
-
-(defn read-bytes-with-format-tag [^ReadCursor cursor]
-  (let [bytes-obj (.readBytesObject cursor nil)
-        str       (String. (.value bytes-obj))
-        fmt-tag   (some-> bytes-obj .formatTag String.)]
-    (cond
-
-      (= fmt-tag (fmt-tag-value :keyword))
-      (keyword str)
-
-      (= fmt-tag (fmt-tag-value :boolean))
-      (= str true-str)
-
-      (= fmt-tag (fmt-tag-value :key-integer))
-      (Integer/parseInt str)
-
-      (= fmt-tag (fmt-tag-value :inst))
-      (java.time.Instant/parse str)
-
-      (= fmt-tag (fmt-tag-value :date))
-      (java.util.Date/from
-        (java.time.Instant/parse str))
-
-      (= fmt-tag (fmt-tag-value :nil))
-      nil
-
-      :else
-      str)))
-
 (def ^:dynamic *debug?* false)
 
 (defn ^WriteCursor coll->ArrayListCursor!
@@ -321,3 +281,37 @@
             cursor    (.putCursor whm hash-code)]
         (.writeIfEmpty cursor (v->slot! cursor v))))
     (.-cursor whm)))
+
+(defn read-bytes-with-format-tag
+  "Reads a `BYTES` value (as a string) at `cursor` and converts it to a Clojure type.
+  Checks the `formatTag` at cursor to determine the type encoded in the bytes object and
+  converts the value to the respective Clojure type (eg. keyword, boolean, instant, date).
+  Supported types are in the global constant `fmt-tag-value`.
+  If there is no format tag (or it is unknown), returns the value as a string."
+  [^ReadCursor cursor]
+  (let [bytes-obj (.readBytesObject cursor nil)
+        str       (String. (.value bytes-obj))
+        fmt-tag   (some-> bytes-obj .formatTag String.)]
+    (cond
+
+      (= fmt-tag (fmt-tag-value :keyword))
+      (keyword str)
+
+      (= fmt-tag (fmt-tag-value :boolean))
+      (= str true-str)
+
+      (= fmt-tag (fmt-tag-value :key-integer))
+      (Integer/parseInt str)
+
+      (= fmt-tag (fmt-tag-value :inst))
+      (java.time.Instant/parse str)
+
+      (= fmt-tag (fmt-tag-value :date))
+      (java.util.Date/from
+        (java.time.Instant/parse str))
+
+      (= fmt-tag (fmt-tag-value :nil))
+      nil
+
+      :else
+      str)))

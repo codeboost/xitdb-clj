@@ -9,7 +9,13 @@
   (:import
     (io.github.radarroark.xitdb ReadCountedHashMap ReadCursor ReadHashMap Slot Tag WriteCursor WriteHashMap)))
 
-(defn read-from-cursor [^ReadCursor cursor for-writing?]
+(defn read-from-cursor
+  "Reads the value at cursor and converts it to a Clojure type.
+  Values tagged Hash map, Array List, Linked Array List and Set will be converted to
+  the respective XITDB* type.
+  If `for-writing?` is true, the function will return XITDBWrite* types, so `cursor` must be a WriteCursor.
+  `BYTES` values will be pre-processed (see `conversion/read-bytes-with-format-tag`)."
+  [^ReadCursor cursor for-writing?]
   (let [value-tag (some-> cursor .slot .tag)]
     #_(println "read-from-cursor" value-tag "for-writing?" for-writing?)
     (cond
