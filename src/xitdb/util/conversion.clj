@@ -35,6 +35,7 @@
     (integer? v) :key-integer
     (instance? java.time.Instant v) :inst
     (instance? java.util.Date v) :date
+    (coll? v) :coll
     (string? v) :string))
 
 ;; map of logical tag -> string used as formatTag in the Bytes record.
@@ -45,6 +46,7 @@
    :nil         "nl"                                        ;; TODO: Could use Tag/NONE instead
    :inst        "in"
    :date        "da"
+   :coll        "co"
    :string      "st"})
 
 (def true-str "#t")
@@ -70,7 +72,8 @@
   (if (nil? v)
     (byte-array (-> jdb .md .getDigestLength))
     (let [digest (.md jdb)
-          fmt-tag (or (some-> v fmt-tag-keyword fmt-tag-value) "")]
+          fmt-tag (or (some-> v fmt-tag-keyword fmt-tag-value)
+                      (throw (IllegalArgumentException. (str "Unsupported key type: " (type v)))))]
       ;; add format tag
       (.update digest (.getBytes fmt-tag "UTF-8"))
       ;; add the value
