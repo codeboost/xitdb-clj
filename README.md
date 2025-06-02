@@ -59,8 +59,8 @@ For the programmer, a `xitdb` database is like a Clojure atom.
 (get-in @db [:users "alice" :age])
 ;; => 31
 ```
-One important distinction to the Clojure atom is that inside a transaction (eg. a `swap!`), 
-'change' operations on the received db argument are mutating it.
+One important distinction from the Clojure atom is that inside a transaction (eg. a `swap!`), 
+'change' operations on the received `db` argument are mutating the underlying data structure.
 
 ```clojure
 (with-db [db (xdb/xit-db :memory)]
