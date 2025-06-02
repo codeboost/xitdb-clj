@@ -3,7 +3,7 @@
 > This project is in early development and rapidly evolving. 
 > Expect breaking changes, rough edges, and incomplete documentation.
 >
-> **🤝 Help Wanted!** If you find this useful, please consider contributing:
+> **Help Wanted!** If you find this useful, please consider contributing:
 > - Report bugs and issues you encounter
 > - Suggest improvements or new features
 > - Submit pull requests for fixes or enhancements
@@ -14,12 +14,11 @@
 
 ## Overview
 
-`xitdb-clj` is a embedded database for efficiently storing and retrieving immutable, persistent data structures. 
+`xitdb-clj` is a embedded database for efficiently storing and retrieving immutable, persistent data structures.
+The library provides atom-like semantics for working with the database from Clojure.
 
-It is a Clojure interface for [xitdb-java](https://github.com/radarroark/xitdb-java), 
-itself a port of [xitdb](https://github.com/radarroark/xitdb), written in Zig.
+It is a Clojure interface for [xitdb-java](https://github.com/radarroark/xitdb-java), itself a port of [xitdb](https://github.com/radarroark/xitdb), written in Zig.
 
-`xitdb-clj` provides atom-like semantics when working with the database from Clojure.
 
 [![Clojars Project](https://img.shields.io/clojars/v/io.github.codeboost/xitdb-clj.svg)](https://clojars.org/io.github.codeboost/xitdb-clj)
 
@@ -33,21 +32,6 @@ itself a port of [xitdb](https://github.com/radarroark/xitdb), written in Zig.
 - Append-only. The data you are writing is invisible to any reader until the very last step, when the top-level history header is updated.
 - All heavy lifting done by the bare-to-the-jvm java library.
 - Database files can be used from other languages, via [xitdb Java library](https://github.com/radarroark/xitdb-java) or the [xitdb Zig library](https://github.com/radarroark/xitdb)
-
-## Architecture
-
-`xitdb-clj` builds on [xitdb-java](https://github.com/radarroark/xitdb-java) which implements:
-
-- **Hash Array Mapped Trie (HAMT)** - For efficient map and set operations
-- **RRB Trees** - For vector operations with good concatenation performance
-- **Structural Sharing** - Minimizes memory usage across versions
-- **Copy-on-Write** - Ensures immutability while maintaining performance
-
-The Clojure wrapper adds:
-- Idiomatic Clojure interfaces (`IAtom`, `IDeref`)
-- Automatic type conversion between Clojure and Java types
-- Thread-local read connections for scalability
-- Integration with Clojure's sequence abstractions
 
 ## Quickstart
 
@@ -162,64 +146,27 @@ values of the database, by setting the `*return-history?*` binding to `true`.
     (println "new value:" new-value)))
 ```
 
+### Architecture
+`xitdb-clj` builds on [xitdb-java](https://github.com/radarroark/xitdb-java) which implements:
+
+- **Hash Array Mapped Trie (HAMT)** - For efficient map and set operations
+- **RRB Trees** - For vector operations with good concatenation performance
+- **Structural Sharing** - Minimizes memory usage across versions
+- **Copy-on-Write** - Ensures immutability while maintaining performance
+
+The Clojure wrapper adds:
+- Idiomatic Clojure interfaces (`IAtom`, `IDeref`)
+- Automatic type conversion between Clojure and Java types
+- Thread-local read connections for scalability
+- Integration with Clojure's sequence abstractions
+
 ### Supported Data Types
+
 - **Maps** - Hash maps with efficient key-value access
 - **Vectors** - Array lists with indexed access
 - **Sets** - Hash sets with unique element storage
 - **Lists** - Linked lists and RRB tree-based linked array lists
 - **Primitives** - Numbers, strings, keywords, booleans, dates.
-
-### Persistence Models
-- **File-based** - Data persisted to disk with crash recovery
-- **In-memory** - Fast temporary storage for testing or caching
-
-## Examples
-
-### User Management System
-
-```clojure
-(def user-db (xdb/xit-db "users.db"))
-
-(reset! user-db {:users {}
-                 :sessions {}
-                 :settings {:max-sessions 100}})
-
-;; Add a new user
-(swap! user-db assoc-in [:users "user123"] 
-       {:id "user123"
-        :email "alice@example.com"
-        :created-at (java.time.Instant/now)
-        :preferences {:theme "dark" :notifications true}})
-
-;; Create a session
-(swap! user-db assoc-in [:sessions "session456"]
-       {:user-id "user123"
-        :created-at (java.time.Instant/now)
-        :expires-at (java.time.Instant/ofEpochSecond (+ (System/currentTimeMillis) 3600))})
-
-;; Update user preferences
-(swap! user-db update-in [:users "user123" :preferences] 
-       merge {:language "en" :timezone "UTC"})
-```
-
-### Configuration Store
-
-```clojure
-(def config-db (xdb/xit-db "app-config.db"))
-
-(reset! config-db 
-  {:database {:host "localhost" :port 5432 :name "myapp"}
-   :cache {:ttl 3600 :max-size 1000}
-   :features #{:user-registration :email-notifications :analytics}
-   :rate-limits [{:path "/api/*" :requests-per-minute 100}
-                 {:path "/upload" :requests-per-minute 10}]})
-
-;; Enable a new feature
-(swap! config-db update :features conj :real-time-updates)
-
-;; Update database configuration
-(swap! config-db assoc-in [:database :host] "db.production.com")
-```
 
 ## Performance Characteristics
 
