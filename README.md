@@ -21,6 +21,8 @@ itself a port of [xitdb](https://github.com/radarroark/xitdb), written in Zig.
 
 `xitdb-clj` provides atom-like semantics when working with the database from Clojure.
 
+[![Clojars Project](https://img.shields.io/clojars/v/io.github.codeboost/xitdb-clj.svg)](https://clojars.org/io.github.codeboost/xitdb-clj)
+
 ## Main characteristics
  
 - Embeddable, tiny library.
@@ -34,7 +36,7 @@ itself a port of [xitdb](https://github.com/radarroark/xitdb), written in Zig.
 
 ## Architecture
 
-`xitdb-clj` builds on `xitdb-java` which implements:
+`xitdb-clj` builds on [xitdb-java](https://github.com/radarroark/xitdb-java) which implements:
 
 - **Hash Array Mapped Trie (HAMT)** - For efficient map and set operations
 - **RRB Trees** - For vector operations with good concatenation performance
@@ -47,20 +49,23 @@ The Clojure wrapper adds:
 - Thread-local read connections for scalability
 - Integration with Clojure's sequence abstractions
 
-## Why you always wanted this in your life
+## Quickstart
+
+Add the dependency to your project, start a REPL.
 
 ### You already know how to use it! 
 
-For the programmer, a `xitdb` database behaves exactly like a Clojure atom.
+For the programmer, a `xitdb` database is like a Clojure atom.
 `reset!` or `swap!` to reset or update, `deref` or `@` to read.
 
 ```clojure
+(require '[xitdb.db :as xdb])
 (def db (xdb/xit-db "my-app.db"))
 ;; Use it like an atom
 (reset! db {:users {"alice" {:name "Alice" :age 30}
                     "bob"   {:name "Bob" :age 25}}})
 ;; Read the entire database
-(common/materialize @db)
+(xdb/materialize @db)
 ;; => {:users {"alice" {:name "Alice", :age 30}, "bob" {:name "Bob", :age 25}}}
 
 (get-in @db [:users "alice" :age])
@@ -168,15 +173,6 @@ values of the database, by setting the `*return-history?*` binding to `true`.
 - **File-based** - Data persisted to disk with crash recovery
 - **In-memory** - Fast temporary storage for testing or caching
 
-
-## Installation
-
-Add to your `deps.edn`:
-
-```clojure
-{:deps {io.github.codeboost/xitdb-clj     {:mvn/version "0.1.0"}}}
-```
-
 ## Examples
 
 ### User Management System
@@ -232,20 +228,7 @@ Add to your `deps.edn`:
 - **Memory Usage**: Minimal overhead with automatic deduplication of identical subtrees
 - **Concurrency**: Thread-safe with optimized read-write locks
 
-## Testing
-
-Run the test suite:
-
-```bash
-clojure -M:test
-```
-
-
-## Contributing
-
-This project welcomes contributions. Please ensure all tests pass and follow the existing code style.
 
 ## License
 
-[License information needed]
-
+MIT
