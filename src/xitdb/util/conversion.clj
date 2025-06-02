@@ -70,8 +70,7 @@
   (if (nil? v)
     (byte-array (-> jdb .md .getDigestLength))
     (let [digest (.md jdb)
-          fmt-tag (or (some-> v fmt-tag-keyword fmt-tag-value)
-                      (throw (ex-info (str "Format tag not found for type: " (type v)) {})))]
+          fmt-tag (or (some-> v fmt-tag-keyword fmt-tag-value) "")]
       ;; add format tag
       (.update digest (.getBytes fmt-tag "UTF-8"))
       ;; add the value
