@@ -11,10 +11,12 @@
     [java.security MessageDigest]
     [java.util.concurrent.locks ReentrantLock]))
 
-
 ;; When set to true,
 ;; swap! will return [current-history-index old-dbval new-dbval]
 (defonce ^:dynamic *return-history?* false)
+
+;; Avoid extra require in your ns
+(def materialize common/materialize)
 
 
 (defn ^WriteArrayList db-history [^Database db]
