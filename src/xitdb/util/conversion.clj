@@ -4,11 +4,10 @@
   (:import
     [io.github.radarroark.xitdb
      Database Database$Bytes Database$Float Database$Int
-     ReadArrayList ReadCountedHashSet ReadCursor ReadHashMap ReadCountedHashMap
-     ReadHashSet Slot Tag WriteArrayList WriteCountedHashSet WriteCursor WriteCountedHashMap
+     ReadArrayList ReadCountedHashMap ReadCountedHashSet ReadCursor ReadHashMap
+     ReadHashSet Slot Tag WriteArrayList WriteCountedHashMap WriteCountedHashSet WriteCursor
      WriteHashMap WriteHashSet WriteLinkedArrayList]
     [java.io OutputStream OutputStreamWriter]
-    [java.nio ByteBuffer]
     [java.security DigestOutputStream]))
 
 (defn xit-tag->keyword
@@ -317,3 +316,64 @@
 
       :else
       str)))
+
+(defn set-write-cursor
+  [^WriteHashSet whs key]
+  (let [hash-code (db-key-hash (-> whs .-cursor .-db) key)]
+    (.putCursor whs hash-code)))
+
+(defn map-write-cursor
+  "Gets a write cursor for the specified key in a WriteHashMap.
+  Creates the key if it doesn't exist."
+  [^WriteHashMap whm key]
+  (let [key-hash (db-key-hash (-> whm .cursor .db) key)]
+    (.putCursor whm key-hash)))
+
+(defn array-list-write-cursor
+  "Returns a cursor to slot i in the array list.
+  Throws if index is out of bounds."
+  [^WriteArrayList wal i]
+  (validation/validate-index-bounds i (.count wal) "Array list write cursor")
+  (.putCursor wal i))
+
+(defn linked-array-list-write-cursor
+  [^WriteLinkedArrayList wlal i]
+  (validation/validate-index-bounds i (.count wlal) "Linked array list write cursor")
+  (.putCursor wlal i))
+
+(defn write-cursor-for-key [cursor current-key]
+  (let [value-tag (some-> cursor .slot .tag)]
+    (cond
+      (= value-tag Tag/HASH_MAP)
+      (map-write-cursor (WriteHashMap. cursor) current-key)
+
+      (= value-tag Tag/COUNTED_HASH_MAP)
+      (map-write-cursor (WriteCountedHashMap. cursor) current-key)
+
+      (= value-tag Tag/HASH_SET)
+      (set-write-cursor (WriteHashSet. cursor) current-key)
+
+      (= value-tag Tag/COUNTED_HASH_SET)
+      (set-write-cursor (WriteCountedHashSet. cursor) current-key)
+
+      (= value-tag Tag/ARRAY_LIST)
+      (array-list-write-cursor (WriteArrayList. cursor) current-key)
+
+      (= value-tag Tag/LINKED_ARRAY_LIST)
+      (linked-array-list-write-cursor (WriteLinkedArrayList. cursor) current-key)
+
+      :else
+      (throw (IllegalArgumentException.
+               (format "Cannot get cursor to key '%s' for value with tag '%s'" current-key (xit-tag->keyword value-tag)))))))
+
+(defn keypath-cursor
+  "Recursively goes to keypath and returns the write cursor"
+  [^WriteCursor cursor keypath]
+  (if (empty? keypath)
+    cursor
+    (loop [cursor cursor
+           [current-key & remaining-keys] keypath]
+      (let [new-cursor (write-cursor-for-key cursor current-key)]
+        (if (empty? remaining-keys)
+          new-cursor
+          (recur new-cursor remaining-keys))))))

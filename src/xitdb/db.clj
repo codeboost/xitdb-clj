@@ -18,6 +18,17 @@
 ;; Avoid extra require in your ns
 (def materialize common/materialize)
 
+(defn open-database
+  "Opens database `filename`.
+  If `filename` is `:memory`, returns a memory based db.
+  open-mode can be `r` or `rw`."
+  [filename ^String open-mode]
+  (let [core   (if (= filename :memory)
+                 (CoreMemory. (RandomAccessMemory.))
+                 (CoreBufferedFile. (RandomAccessBufferedFile. (File. ^String filename) open-mode)))
+        hasher (Hasher. (MessageDigest/getInstance "SHA-1"))]
+    (Database. core hasher)))
+
 
 (defn ^WriteArrayList db-history [^Database db]
   (WriteArrayList. (.rootCursor db)))
@@ -42,17 +53,6 @@
   (append-context! history nil (fn [^WriteCursor cursor]
                                  (conversion/v->slot! cursor new-value))))
 
-(defn open-database
-  "Opens database `filename`.
-  If `filename` is `:memory`, returns a memory based db.
-  open-mode can be `r` or `rw`."
-  [filename ^String open-mode]
-  (let [core   (if (= filename :memory)
-                 (CoreMemory. (RandomAccessMemory.))
-                 (CoreBufferedFile. (RandomAccessBufferedFile. (File. ^String filename) open-mode)))
-        hasher (Hasher. (MessageDigest/getInstance "SHA-1"))]
-    (Database. core hasher)))
-
 (defn v->slot!
   "Converts a value to a slot which can be written to a cursor.
   For XITDB* types (which support ISlot), will return `-slot`,
@@ -63,19 +63,21 @@
     (conversion/v->slot! cursor v)))
 
 (defn xitdb-swap!
-  "Starts a new transaction and calls `f` with the value at root.
-  `f` will receive a XITDBWrite* type (db) and `args`.
+  "Starts a new transaction and calls `f` with the value at `base-keypath`.
+  If `base-keypath` is nil, will use the root cursor.
+  `f` will receive a XITDBWrite* type with the value at `base-keypath` and `args`.
   Actions on the XITDBWrite* type (like `assoc`) will mutate it.
-  Return value of `f` is written at (root) cursor.
+  Return value of `f` is written at `base-keypath` (or root) cursor.
   Returns the transaction history index."
-  [db f & args]
+  [db base-keypath f & args]
   (let [history (db-history db)
         slot (.getSlot history -1)]
     (append-context!
       history
       slot
       (fn [^WriteCursor cursor]
-        (let [obj (xtypes/read-from-cursor cursor true)]
+        (let [cursor (conversion/keypath-cursor cursor base-keypath)
+              obj (xtypes/read-from-cursor cursor true)]
           (let [retval (apply f (into [obj] args))]
             (.write cursor (v->slot! cursor retval))))))))
 
@@ -84,14 +86,14 @@
   Returns the new value of the database.
   If the binding `*return-history?*` is true, returns
   `[current-history-index db-before db-after]`."
-  [xitdb f & args]
+  [xitdb base-keypath f & args]
   (let [^ReentrantLock lock (.-lock xitdb)]
     (when (.isHeldByCurrentThread lock)
       (throw (IllegalStateException. "swap! should not be called from swap! or reset!")))
     (try
       (.lock lock)
       (let [old-value (when *return-history?* (deref xitdb))
-            index     (apply xitdb-swap! (into [(-> xitdb .rwdb) f] args))
+            index     (apply xitdb-swap! (into [(-> xitdb .rwdb) base-keypath f] args))
             new-value (deref xitdb)]
         (if *return-history?*
           [index old-value new-value]
@@ -146,16 +148,16 @@
         (.unlock lock))))
 
   (swap [this f]
-    (xitdb-swap-with-lock! this f))
+    (xitdb-swap-with-lock! this nil f))
 
   (swap [this f a]
-    (xitdb-swap-with-lock! this f a))
+    (xitdb-swap-with-lock! this nil f a))
 
   (swap [this f a1 a2]
-    (xitdb-swap-with-lock! this f a1 a2))
+    (xitdb-swap-with-lock! this nil f a1 a2))
 
   (swap [this f x y args]
-    (apply xitdb-swap-with-lock! (concat [this f x y] args))))
+    (apply xitdb-swap-with-lock! (concat [this nil f x y] args))))
 
 (defn xit-db
   "Returns a new XITDBDatabase which can be used to query and transact data.
@@ -179,3 +181,32 @@
 
 
 
+(deftype XITDBCursor [xdb keypath]
+
+  java.io.Closeable
+  (close [this])
+
+  clojure.lang.IDeref
+  (deref [this]
+    (let [v (deref xdb)]
+      (get-in v keypath)))
+
+  clojure.lang.IAtom
+
+  (reset [this new-value]
+    (swap! xdb update-in keypath (constantly new-value)))
+
+  (swap [this f]
+    (xitdb-swap-with-lock! xdb keypath  f))
+
+  (swap [this f a]
+    (xitdb-swap-with-lock! xdb keypath  f a))
+
+  (swap [this f a1 a2]
+    (xitdb-swap-with-lock! xdb keypath  f a1 a2))
+
+  (swap [this f x y args]
+    (apply xitdb-swap-with-lock! (concat [xdb keypath f x y] args))))
+
+(defn xdb-cursor [^XITDBDatabase xdb keypath]
+  (XITDBCursor. xdb keypath))

@@ -1,6 +1,7 @@
 (ns xitdb.hash-map
   (:require
     [xitdb.common :as common]
+    [xitdb.util.conversion :as conversion]
     [xitdb.util.operations :as operations])
   (:import
     [io.github.radarroark.xitdb
@@ -157,7 +158,7 @@
     (let [cursor (operations/map-read-cursor whm key)]
       (if (nil? cursor)
         not-found
-        (common/-read-from-cursor (operations/map-write-cursor whm key)))))
+        (common/-read-from-cursor (conversion/map-write-cursor whm key)))))
 
   clojure.lang.Seqable
   (seq [this]
