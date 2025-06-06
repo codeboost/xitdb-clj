@@ -180,7 +180,6 @@
       (->XITDBDatabase tldb rwdb (ReentrantLock.)))))
 
 
-
 (deftype XITDBCursor [xdb keypath]
 
   java.io.Closeable
@@ -194,7 +193,7 @@
   clojure.lang.IAtom
 
   (reset [this new-value]
-    (swap! xdb update-in keypath (constantly new-value)))
+    (xitdb-swap-with-lock! xdb keypath (constantly new-value)))
 
   (swap [this f]
     (xitdb-swap-with-lock! xdb keypath  f))
@@ -208,5 +207,15 @@
   (swap [this f x y args]
     (apply xitdb-swap-with-lock! (concat [xdb keypath f x y] args))))
 
-(defn xdb-cursor [^XITDBDatabase xdb keypath]
-  (XITDBCursor. xdb keypath))
+(defn xdb-cursor [xdb keypath]
+  (cond
+    (instance? XITDBCursor xdb)
+    (XITDBCursor. (.-xdb xdb) (vec (concat (.-keypath xdb) keypath)))
+
+    (instance? XITDBDatabase xdb)
+    (XITDBCursor. xdb keypath)
+
+    :else
+    (throw (IllegalArgumentException. (str "xdb must be an instance of XITDBCursor or XITDBDatabase, got: " (type xdb))))))
+
+
