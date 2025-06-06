@@ -85,7 +85,10 @@
   "Performs the 'swap!' operation while locking `db.lock`.
   Returns the new value of the database.
   If the binding `*return-history?*` is true, returns
-  `[current-history-index db-before db-after]`."
+  `[current-history-index db-before db-after]`.
+  If `keypath` is not empty, the result of `f` will be written to the db at `keypath` rather
+  than db root.
+  Similarly, if `keypath` is not empty, the returned value will be the value at `keypath`."
   [xitdb base-keypath f & args]
   (let [^ReentrantLock lock (.-lock xitdb)]
     (when (.isHeldByCurrentThread lock)
