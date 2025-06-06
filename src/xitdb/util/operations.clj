@@ -3,7 +3,7 @@
     [xitdb.util.conversion :as conversion]
     [xitdb.util.validation :as validation])
   (:import
-    [io.github.radarroark.xitdb ReadArrayList ReadCountedHashMap ReadCountedHashSet ReadHashMap ReadHashSet ReadLinkedArrayList Tag WriteArrayList WriteCursor WriteHashMap WriteHashSet WriteLinkedArrayList]))
+    [io.github.radarroark.xitdb ReadArrayList ReadCountedHashMap ReadCountedHashSet ReadHashMap ReadHashSet ReadLinkedArrayList Tag WriteArrayList WriteCountedHashMap WriteCountedHashSet WriteCursor WriteHashMap WriteHashSet WriteLinkedArrayList]))
 
 ;; ============================================================================
 ;; Array List Operations
@@ -151,14 +151,6 @@
   [^ReadHashMap rhm key]
   (let [key-hash (conversion/db-key-hash (-> rhm .cursor .db) key)]
     (.getCursor rhm key-hash)))
-
-
-(defn map-write-cursor
-  "Gets a write cursor for the specified key in a WriteHashMap.
-  Creates the key if it doesn't exist."
-  [^WriteHashMap whm key]
-  (let [key-hash (conversion/db-key-hash (-> whm .cursor .db) key)]
-    (.putCursor whm key-hash)))
 
 ;; ============================================================================
 ;; Set Operations  

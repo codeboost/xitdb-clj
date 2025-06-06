@@ -3,11 +3,11 @@
     [xitdb.array-list :as xarray-list]
     [xitdb.common :as common]
     [xitdb.hash-map :as xhash-map]
-    [xitdb.linked-list :as xlinked-list]
     [xitdb.hash-set :as xhash-set]
+    [xitdb.linked-list :as xlinked-list]
     [xitdb.util.conversion :as conversion])
   (:import
-    (io.github.radarroark.xitdb ReadCountedHashMap ReadCursor ReadHashMap Slot Tag WriteCursor WriteHashMap)))
+    [io.github.radarroark.xitdb ReadCursor Slot Tag WriteCursor]))
 
 (defn read-from-cursor
   "Reads the value at cursor and converts it to a Clojure type.
