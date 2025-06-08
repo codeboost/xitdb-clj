@@ -185,7 +185,7 @@
         cursor    (.getCursor rhs hash-code)]
     (some? cursor)))
 
-(defn ^WriteHashMap set-empty!
+(defn ^WriteHashSet set-empty!
   "Replaces the whs value with an empty set."
   [^WriteHashSet whs]
   (let [empty-set (conversion/v->slot! (.cursor whs) #{})]
