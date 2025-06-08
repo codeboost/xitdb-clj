@@ -40,8 +40,11 @@
 
   clojure.lang.Indexed
   (nth [_ i]
-    (let [cursor (.getCursor ral (long i))]
-      (common/-read-from-cursor cursor)))
+    (let [count (.count ral)
+          idx   (long i)]
+      (if (and (>= idx 0) (< idx count))
+        (common/-read-from-cursor (.getCursor ral idx))
+        (throw (IndexOutOfBoundsException. (str "Index: " i ", Size: " count))))))
 
   (nth [_ i not-found]
     (let [cursor (.getCursor ral (long i))]

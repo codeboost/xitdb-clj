@@ -24,4 +24,7 @@
         (swap! cursor1 assoc-in [3 :hidden] :changed-by-swap!)
         (is (= [1 2 3 {:hidden :changed-by-swap!} 5]) (xdb/materialize @cursor1))
         (is (= :changed-by-swap! @cursor3))
-        (is (= 3 @cursor2))))))
+        (is (= 3 @cursor2)))
+
+      (testing "Correctly handles invalid cursor path"
+        (is (thrown? IndexOutOfBoundsException @(xdb/xdb-cursor db [:foo :bar 999])))))))
