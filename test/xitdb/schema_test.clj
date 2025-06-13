@@ -66,4 +66,7 @@
                                              :city "San Francisco"
                                              :zip 94107
                                              :lonlat [37.7749 -122.4194]}}}})
-      (common/materialize @db))))
+
+      (is (= {:users {"12345"
+                      #:xdb{:values ["John" "Doe" #:xdb{:values ["123 Main St" "San Francisco" 94107 [37.7749 -122.4194]]}]}}}
+            (common/materialize @db))))))
