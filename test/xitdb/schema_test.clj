@@ -3,6 +3,8 @@
             [xitdb.db :as xdb]
             [malli.core :as m]
             [malli.util :as mu]
+            [xitdb.util.schema :as sch]
+            [xitdb.util.conversion :as conv]
             [clojure.test :refer :all]))
 
 (def AddressSchema
@@ -29,42 +31,39 @@
 {:xdb/schema {[:users :*]          UserSchema
               [:users :* :address] ExtendedAddressSchema}}
 
-(defn extract-schema [schema-map keypath]
-  (let [exact-matching-patterns (filter
-                                  (fn [pattern]
-                                    (and (= (count pattern) (count keypath))
-                                         (every? true?
-                                                 (map (fn [p k] (or (= p :*) (= p k)))
-                                                      pattern keypath))))
-                                  (keys schema-map))]
-    (if (seq exact-matching-patterns)
-      (let [best-pattern (apply max-key (fn [pattern] (count (remove #(= % :*) pattern))) exact-matching-patterns)]
-        (get schema-map best-pattern))
-      (let [shorter-patterns (filter
-                               (fn [pattern]
-                                 (and (< (count pattern) (count keypath))
-                                      (every? true?
-                                              (map (fn [p k] (or (= p :*) (= p k)))
-                                                   pattern (take (count pattern) keypath)))))
-                               (keys schema-map))]
-        (when (seq shorter-patterns)
-          (let [best-pattern   (apply max-key (fn [pattern] (count (remove #(= % :*) pattern))) shorter-patterns)
-                base-schema    (get schema-map best-pattern)
-                remaining-path (drop (count best-pattern) keypath)]
-            (mu/get-in base-schema remaining-path)))))))
-
 (deftest extract-schema-test
   (let [schema-map {[:users :*]          UserSchema
                     [:users :* :address] ExtendedAddressSchema}]
-    (is (= UserSchema (extract-schema schema-map [:users "1234"])))
-    (is (= ExtendedAddressSchema (extract-schema schema-map [:users "1234" :address])))))
+    (is (= UserSchema (sch/extract-schema schema-map [:users "1234"])))
+    (is (= ExtendedAddressSchema (sch/extract-schema schema-map [:users "1234" :address])))))
 
 (deftest extract-schema-nested-test
   (let [schema-map {[:users :*] UserSchema}]
-    (is (= UserSchema (extract-schema schema-map [:users "1234"])))
-    (let [extracted (extract-schema schema-map [:users "1234" :address])]
-      (is (= AddressSchema (m/form extracted))))))
+    (is (= UserSchema (sch/extract-schema schema-map [:users "1234"])))
+    (is (= AddressSchema (sch/extract-schema schema-map [:users "1234" :address])))))
 
 
+(deftest index-of-key-in-schema-test
+  (let [schema-map {[:users :*] UserSchema}
+        extracted (sch/extract-schema schema-map [:users "1234"])]
+    (is (= UserSchema extracted))
+
+    (is (= 0 (sch/index-of-key-in-schema extracted :first-name)))
+    (is (= 1 (sch/index-of-key-in-schema extracted :last-name)))
+    (is (= 2 (sch/index-of-key-in-schema extracted :address)))))
 
 
+(map first (m/children UserSchema))
+
+(deftest DbSwapTest
+  (let [schema-map {[:users :*] UserSchema}
+        db (xdb/xit-db :memory)]
+    (binding [conv/schema-for-keypath (fn [keypath]
+                                        (sch/extract-schema schema-map keypath))]
+      (reset! db {:users {"12345" {:first-name "John"
+                                   :last-name "Doe"
+                                   :address {:street "123 Main St"
+                                             :city "San Francisco"
+                                             :zip 94107
+                                             :lonlat [37.7749 -122.4194]}}}})
+      (common/materialize @db))))

@@ -1,5 +1,6 @@
 (ns xitdb.util.conversion
   (:require
+    [xitdb.util.schema :as sch]
     [xitdb.util.validation :as validation])
   (:import
     [io.github.radarroark.xitdb
@@ -99,6 +100,12 @@
 
 ;; keypath on the root map
 (def ^:dynamic *current-write-keypath* [])
+
+(def ^:dynamic schema-for-keypath (fn [&_]))
+
+(defn schema-for-current-keypath []
+  (schema-for-keypath *current-write-keypath*))
+
 
 (defn ^Slot primitive-for
   "Converts a Clojure primitive value to its corresponding XitDB representation.
@@ -261,22 +268,42 @@
         (.append write-list (primitive-for v))))
     (.-cursor write-list)))
 
+(defn ->vals-array! [schema whm k v]
+  (when-let [idx (sch/index-of-key-in-schema schema k)]
+    (let [keyhash (db-key-hash (-> whm .cursor .db) :xdb/values)
+          acursor (.putCursor whm keyhash)
+          avals   (WriteArrayList. acursor)]
+
+      (when (zero? (.count avals))
+        (let [key-cursor (.putKeyCursor whm keyhash)
+              sch-keys   (sch/schema-keys schema)
+              empty-vals (vec (repeat (count sch-keys) nil))]
+          (doseq [_ sch-keys]
+            (.append avals (primitive-for nil)))
+          (.writeIfEmpty key-cursor (v->slot! key-cursor :xdb/values))
+          (.write acursor (v->slot! acursor avals))))
+
+      (let [value-cur (.putCursor avals idx)]
+        (binding [*current-write-keypath* (conj *current-write-keypath* k)]
+          (.write value-cur (v->slot! value-cur v))))
+      true)))
+
 (defn ^WriteCursor map->WriteHashMapCursor!
   "Writes a Clojure map to a XitDB WriteHashMap.
   Returns the cursor of the created WriteHashMap."
   [^WriteCursor cursor m]
-  (let [whm (WriteCountedHashMap. cursor)]
+  (let [schema (schema-for-current-keypath)
+        whm (WriteCountedHashMap. cursor)]
     (doseq [[k v] m]
-      #_(println "Writing to keypath: " *current-write-keypath* ": k" k "v" v)
-      ;; if *current-write-keypath* is in *current-schema*
-      ;; assoc :xdb/values [v->slot(v1) v->slot(v2)...]
-
-      (let [hash-value (db-key-hash (-> cursor .db) k)
-            key-cursor (.putKeyCursor whm hash-value)
-            cursor     (.putCursor whm hash-value)]
-        (binding [*current-write-keypath* (conj *current-write-keypath* k)]
-          (.writeIfEmpty key-cursor (v->slot! key-cursor k))
-          (.write cursor (v->slot! cursor v)))))
+      (let [idx (sch/index-of-key-in-schema schema k)]
+        (if idx
+          (->vals-array! schema whm k v)
+          (let [hash-value (db-key-hash (-> cursor .db) k)
+                key-cursor (.putKeyCursor whm hash-value)
+                cursor     (.putCursor whm hash-value)]
+            (binding [*current-write-keypath* (conj *current-write-keypath* k)]
+              (.writeIfEmpty key-cursor (v->slot! key-cursor k))
+              (.write cursor (v->slot! cursor v)))))))
     (.-cursor whm)))
 
 (defn ^WriteCursor set->WriteCursor!
