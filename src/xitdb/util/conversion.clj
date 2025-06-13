@@ -97,6 +97,9 @@
       ;; finish hash
       (.digest digest))))
 
+;; keypath on the root map
+(def ^:dynamic *current-write-keypath* [])
+
 (defn ^Slot primitive-for
   "Converts a Clojure primitive value to its corresponding XitDB representation.
   Handles strings, keywords, integers, booleans, and floats.
@@ -264,11 +267,16 @@
   [^WriteCursor cursor m]
   (let [whm (WriteCountedHashMap. cursor)]
     (doseq [[k v] m]
+      (println "Writing to keypath: " *current-write-keypath* ": k" k "v" v)
+      ;; if *current-write-keypath* is in *current-schema*
+      ;; assoc :xdb/values [v->slot(v1) v->slot(v2)...]
+
       (let [hash-value (db-key-hash (-> cursor .db) k)
             key-cursor (.putKeyCursor whm hash-value)
             cursor     (.putCursor whm hash-value)]
-        (.writeIfEmpty key-cursor (v->slot! key-cursor k))
-        (.write cursor (v->slot! cursor v))))
+        (binding [*current-write-keypath* (conj *current-write-keypath* k)]
+          (.writeIfEmpty key-cursor (v->slot! key-cursor k))
+          (.write cursor (v->slot! cursor v)))))
     (.-cursor whm)))
 
 (defn ^WriteCursor set->WriteCursor!

@@ -195,20 +195,25 @@
 ;; ============================================================================
 ;; Sequence Operations
 ;; ============================================================================
+(def ^:dynamic *read-keypath* [])
 
 (defn map-seq
   "Return a lazy seq of key-value MapEntry pairs."
   [^ReadHashMap rhm read-from-cursor]
-  (let [it (.iterator rhm)]
-    (letfn [(step []
+  (println "map-seq from " *read-keypath*)
+  (let [it           (.iterator rhm)
+        current-path *read-keypath*]                        ; Capture the current path
+    (letfn [(step [path]
               (lazy-seq
                 (when (.hasNext it)
-                  (let [cursor (.next it)
-                        kv     (.readKeyValuePair cursor)
-                        k      (read-from-cursor (.-keyCursor kv))]
-                    (let [v (read-from-cursor (.-valueCursor kv))]
-                      (cons (clojure.lang.MapEntry. k v) (step)))))))]
-      (step))))
+                  (let [cursor   (.next it)
+                        kv       (.readKeyValuePair cursor)
+                        k        (read-from-cursor (.-keyCursor kv))
+                        new-path (conj path k)]
+                    (binding [*read-keypath* new-path]      ; Set for this evaluation
+                      (let [v (read-from-cursor (.-valueCursor kv))]
+                        (cons (clojure.lang.MapEntry. k v) (step new-path))))))))]
+      (step current-path))))
 
 (defn set-seq
   "Return a lazy seq values from the set."
