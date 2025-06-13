@@ -200,7 +200,7 @@
 (defn map-seq
   "Return a lazy seq of key-value MapEntry pairs."
   [^ReadHashMap rhm read-from-cursor]
-  (println "map-seq from " *read-keypath*)
+  #_(println "map-seq from " *read-keypath*)
   (let [it           (.iterator rhm)
         current-path *read-keypath*]                        ; Capture the current path
     (letfn [(step [path]

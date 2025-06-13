@@ -267,7 +267,7 @@
   [^WriteCursor cursor m]
   (let [whm (WriteCountedHashMap. cursor)]
     (doseq [[k v] m]
-      (println "Writing to keypath: " *current-write-keypath* ": k" k "v" v)
+      #_(println "Writing to keypath: " *current-write-keypath* ": k" k "v" v)
       ;; if *current-write-keypath* is in *current-schema*
       ;; assoc :xdb/values [v->slot(v1) v->slot(v2)...]
 
