@@ -221,54 +221,58 @@
 (defn ^WriteCursor coll->ArrayListCursor!
   "Converts a Clojure collection to a XitDB ArrayList cursor.
   Handles nested maps and collections recursively.
+  Updates *current-write-keypath* with array indices for nested elements.
   Returns the cursor of the created WriteArrayList."
   [^WriteCursor cursor coll]
   (when *debug?* (println "Write array" (type coll)))
   (let [write-array (WriteArrayList. cursor)]
-    (doseq [v coll]
-      (cond
-        (map? v)
-        (let [v-cursor (.appendCursor write-array)]
-          (map->WriteHashMapCursor! v-cursor v))
+    (doseq [[idx v] (map-indexed vector coll)]
+      (binding [*current-write-keypath* (conj *current-write-keypath* idx)]
+        (cond
+          (map? v)
+          (let [v-cursor (.appendCursor write-array)]
+            (map->WriteHashMapCursor! v-cursor v))
 
-        (validation/list-or-cons? v)
-        (let [v-cursor (.appendCursor write-array)]
-          (list->LinkedArrayListCursor! v-cursor v))
+          (validation/list-or-cons? v)
+          (let [v-cursor (.appendCursor write-array)]
+            (list->LinkedArrayListCursor! v-cursor v))
 
-        (validation/vector-or-chunked? v)
-        (let [v-cursor (.appendCursor write-array)]
-          (coll->ArrayListCursor! v-cursor v))
+          (validation/vector-or-chunked? v)
+          (let [v-cursor (.appendCursor write-array)]
+            (coll->ArrayListCursor! v-cursor v))
 
-        :else
-        (.append write-array (primitive-for v))))
+          :else
+          (.append write-array (primitive-for v)))))
     (.-cursor write-array)))
 
 (defn ^WriteCursor list->LinkedArrayListCursor!
   "Converts a Clojure list or seq-like collection to a XitDB LinkedArrayList cursor.
-   Optimized for sequential access collections rather than random access ones."
+  Optimized for sequential access collections rather than random access ones.
+  Updates *current-write-keypath* with list indices for nested elements."
   [^WriteCursor cursor coll]
   (when *debug?* (println "Write list" (type coll)))
   (let [write-list (WriteLinkedArrayList. cursor)]
-    (doseq [v coll]
+    (doseq [[idx v] (map-indexed vector coll)]
       (when *debug?* (println "v=" v))
-      (cond
-        (map? v)
-        (let [v-cursor (.appendCursor write-list)]
-          (map->WriteHashMapCursor! v-cursor v))
+      (binding [*current-write-keypath* (conj *current-write-keypath* idx)]
+        (cond
+          (map? v)
+          (let [v-cursor (.appendCursor write-list)]
+            (map->WriteHashMapCursor! v-cursor v))
 
-        (validation/lazy-seq? v)
-        (throw (IllegalArgumentException. "Lazy sequences can be infinite and not allowed !"))
+          (validation/lazy-seq? v)
+          (throw (IllegalArgumentException. "Lazy sequences can be infinite and not allowed !"))
 
-        (validation/list-or-cons? v)
-        (let [v-cursor (.appendCursor write-list)]
-          (list->LinkedArrayListCursor! v-cursor v))
+          (validation/list-or-cons? v)
+          (let [v-cursor (.appendCursor write-list)]
+            (list->LinkedArrayListCursor! v-cursor v))
 
-        (validation/vector-or-chunked? v)
-        (let [v-cursor (.appendCursor write-list)]
-          (coll->ArrayListCursor! v-cursor v))
+          (validation/vector-or-chunked? v)
+          (let [v-cursor (.appendCursor write-list)]
+            (coll->ArrayListCursor! v-cursor v))
 
-        :else
-        (.append write-list (primitive-for v))))
+          :else
+          (.append write-list (primitive-for v)))))
     (.-cursor write-list)))
 
 (defn schema-assoc-in-vals!
@@ -320,14 +324,16 @@
 
 (defn ^WriteCursor set->WriteCursor!
   "Writes a Clojure set `s` to a XitDB WriteHashSet.
+  Updates *current-write-keypath* with :* placeholder for nested elements.
   Returns the cursor of the created WriteHashSet."
   [^WriteCursor cursor s]
   (let [whm (WriteCountedHashSet. cursor)
         db  (-> cursor .db)]
     (doseq [v s]
-      (let [hash-code (db-key-hash db v)
-            cursor    (.putCursor whm hash-code)]
-        (.writeIfEmpty cursor (v->slot! cursor v))))
+      (binding [*current-write-keypath* (conj *current-write-keypath* :*)]
+        (let [hash-code (db-key-hash db v)
+              cursor    (.putCursor whm hash-code)]
+          (.writeIfEmpty cursor (v->slot! cursor v)))))
     (.-cursor whm)))
 
 (defn read-bytes-with-format-tag
