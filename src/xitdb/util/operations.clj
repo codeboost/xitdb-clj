@@ -213,6 +213,37 @@
                 (clojure.lang.MapEntry. key value)))))
         schema-keys))))
 
+(defn- should-hide-key?
+  "Returns true if the key should be hidden from map iteration.
+  Internal :xdb/ keys are hidden unless *show-hidden-keys?* is true."
+  [k]
+  (and (keyword? k)
+       (.startsWith (str k) ":xdb/")
+       (not *show-hidden-keys?*)))
+
+(defn- map-iterator-seq
+  "Returns a lazy sequence of map entries from an iterator, 
+  filtering out internal :xdb/ keys.
+  
+  The `path` parameter represents the current keypath context (e.g. [:users 123]).
+  It is used for maintaining proper *read-keypath* bindings during traversal."
+  [it read-from-cursor path]
+  (letfn [(step [current-path]
+            (lazy-seq
+              (when (.hasNext it)
+                (let [cursor (.next it)
+                      kv     (.readKeyValuePair cursor)
+                      k      (read-from-cursor (.-keyCursor kv))]
+                  (if (should-hide-key? k)
+                    ;; Skip this key and continue
+                    (step current-path)
+                    ;; Process this key
+                    (let [new-path (conj current-path k)]
+                      (binding [*read-keypath* new-path]
+                        (let [v (read-from-cursor (.-valueCursor kv))]
+                          (cons (clojure.lang.MapEntry. k v) (step new-path))))))))))]
+    (step path)))
+
 (defn map-seq
   "Return a lazy seq of key-value MapEntry pairs.
   If the map contains :xdb/values and there's a schema for the current keypath,
@@ -235,40 +266,13 @@
     
     (if (and schema values-array (not *show-hidden-keys?*))
       ;; Schema-optimized path: reconstruct from :xdb/values + remaining entries
-      (let [schema-entries (reconstruct-schema-entries schema values-array)
-            
-            ;; Create iterator for remaining (non-schema) entries
-            remaining-entries 
-            (letfn [(step [path]
-                      (lazy-seq
-                        (when (.hasNext it)
-                          (let [cursor   (.next it)
-                                kv       (.readKeyValuePair cursor)
-                                k        (read-from-cursor (.-keyCursor kv))]
-                            ;; Skip :xdb/values key since we already processed it
-                            (if (= k :xdb/values)
-                              (step path)
-                              (let [new-path (conj path k)]
-                                (binding [*read-keypath* new-path]
-                                  (let [v (read-from-cursor (.-valueCursor kv))]
-                                    (cons (clojure.lang.MapEntry. k v) (step new-path))))))))))]
-              (step current-path))]
-        
+      (let [schema-entries    (reconstruct-schema-entries schema values-array)
+            remaining-entries (map-iterator-seq it read-from-cursor current-path)]
         ;; Concatenate schema entries with remaining entries
         (concat schema-entries remaining-entries))
       
       ;; Standard path: process all entries normally 
-      (letfn [(step [path]
-                (lazy-seq
-                  (when (.hasNext it)
-                    (let [cursor   (.next it)
-                          kv       (.readKeyValuePair cursor)
-                          k        (read-from-cursor (.-keyCursor kv))
-                          new-path (conj path k)]
-                      (binding [*read-keypath* new-path]
-                        (let [v (read-from-cursor (.-valueCursor kv))]
-                          (cons (clojure.lang.MapEntry. k v) (step new-path))))))))]
-        (step current-path)))))
+      (map-iterator-seq it read-from-cursor current-path))))
 
 (defn set-seq
   "Return a lazy seq values from the set."
