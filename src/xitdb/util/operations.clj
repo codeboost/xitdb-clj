@@ -266,6 +266,61 @@
                           (cons (clojure.lang.MapEntry. k v) (step new-path))))))))))]
     (step *read-keypath*)))
 
+(defn- map-read-value [rhm key not-found read-from-cursor]
+  (let [cursor (map-read-cursor rhm key)]
+    (if (nil? cursor)
+      not-found
+      (binding [*read-keypath* (conj *read-keypath* key)]
+        (read-from-cursor cursor)))))
+
+(defn- map-read-schema-value [rhm key read-from-cursor]
+  (let [schema      (conversion/schema-for-keypath *read-keypath*)
+        idx         (when schema (sch/index-of-key-in-schema schema key))
+        vals-cursor (when idx (map-read-cursor rhm :xdb/values))]
+    (when vals-cursor
+      (let [^ReadArrayList ral (ReadArrayList. vals-cursor)]
+        (binding [*read-keypath* (conj *read-keypath* key)]
+          (read-from-cursor (.getCursor ral idx)))))))
+
+(defn map-val-at
+  "Looks up a key in a ReadHashMap, handling schema-optimized maps.
+  Returns the value for the key, or not-found if the key doesn't exist."
+  [^ReadHashMap rhm key not-found read-from-cursor]
+  ;; Check if this is a schema-optimized map and the key is in the schema
+  (let [current-path *read-keypath*
+        schema       (conversion/schema-for-keypath current-path)]
+    (if (and schema 
+             (not *show-hidden-keys?*)
+             (map-contains-key? rhm :xdb/values))
+      ;; Schema-optimized: check if key is in schema first
+      (if-let [idx (sch/index-of-key-in-schema schema key)]
+        ;; Key is in schema, get from :xdb/values array
+        (let [values-cursor (map-read-cursor rhm :xdb/values)
+              ^ReadArrayList ral (ReadArrayList. values-cursor)]
+          (binding [*read-keypath* (conj current-path key)]
+            (let [value-cursor (.getCursor ral idx)]
+              (read-from-cursor value-cursor))))
+        ;; Key not in schema, check if it exists as regular entry
+        (map-read-value rhm key not-found read-from-cursor))
+      ;; Standard lookup
+      (map-read-value rhm key not-found read-from-cursor))))
+
+(defn map-contains-key-schema-aware?
+  "Checks if a ReadHashMap contains a key, handling schema-optimized maps.
+  Returns true if the key exists either in the schema or as a regular entry."
+  [^ReadHashMap rhm key]
+  ;; Check if this is a schema-optimized map and the key is in the schema
+  (let [current-path *read-keypath*
+        schema       (conversion/schema-for-keypath current-path)]
+    (if (and schema 
+             (not *show-hidden-keys?*)
+             (map-contains-key? rhm :xdb/values))
+      ;; Schema-optimized: check if key is in schema or exists as regular entry
+      (or (some? (sch/index-of-key-in-schema schema key))
+          (map-contains-key? rhm key))
+      ;; Standard containsKey
+      (map-contains-key? rhm key))))
+
 (defn map-seq
   "Return a lazy seq of key-value MapEntry pairs.
   If the map contains :xdb/values and there's a schema for the current keypath,
