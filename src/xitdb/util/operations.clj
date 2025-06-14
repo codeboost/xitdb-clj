@@ -83,8 +83,36 @@
 ;; Map Operations
 ;; ============================================================================
 
+;; Dynamic variables for keypath context and display options
+(def ^:dynamic *read-keypath* [])
+(def ^:dynamic *show-hidden-keys?* false)
+
+(defn- ->vals-array!
+  "Associates a key-value pair to a schema-optimized :xdb/values array.
+  Returns true if the value was written to the schema array, false otherwise."
+  [schema whm k v]
+  (when-let [idx (sch/index-of-key-in-schema schema k)]
+    (let [keyhash (conversion/db-key-hash (-> whm .cursor .db) :xdb/values)
+          acursor (.putCursor whm keyhash)
+          avals   (WriteArrayList. acursor)]
+
+      (when (zero? (.count avals))
+        (let [key-cursor (.putKeyCursor whm keyhash)
+              sch-keys   (sch/schema-keys schema)]
+          (doseq [_ sch-keys]
+            (.append avals (conversion/primitive-for nil)))
+          (.writeIfEmpty key-cursor (conversion/v->slot! key-cursor :xdb/values))
+          (.write acursor (conversion/v->slot! acursor avals))))
+
+      (let [value-cur (.putCursor avals idx)]
+        (binding [conversion/*current-write-keypath* (conj conversion/*current-write-keypath* k)]
+          (.write value-cur (conversion/v->slot! value-cur v))))
+      true)))
+
 (defn map-assoc-value!
   "Associates a key-value pair in a WriteHashMap.
+  If a schema exists for the current write keypath and the key is in the schema,
+  the value will be stored in the :xdb/values array instead of as a regular map entry.
   
   Args:
     whm - The WriteHashMap to modify
@@ -96,12 +124,18 @@
   Throws IllegalArgumentException if attempting to associate an internal key.
   Updates the internal count if fast counting is enabled."
   [^WriteHashMap whm k v]
-  (let [key-hash   (conversion/db-key-hash (-> whm .cursor .db) k)
-        key-cursor (.putKeyCursor whm key-hash)
-        cursor     (.putCursor whm key-hash)]
-    (.writeIfEmpty key-cursor (conversion/v->slot! key-cursor k))
-    (.write cursor (conversion/v->slot! cursor v))
-    whm))
+  ;; Check if we should use schema-optimized storage
+  (let [schema (conversion/schema-for-keypath conversion/*current-write-keypath*)]
+    (if (and schema (->vals-array! schema whm k v))
+      ;; Value was written to schema array
+      whm
+      ;; Fall back to standard map association
+      (let [key-hash   (conversion/db-key-hash (-> whm .cursor .db) k)
+            key-cursor (.putKeyCursor whm key-hash)
+            cursor     (.putCursor whm key-hash)]
+        (.writeIfEmpty key-cursor (conversion/v->slot! key-cursor k))
+        (.write cursor (conversion/v->slot! cursor v))
+        whm))))
 
 (defn map-dissoc-key!
   "Removes a key-value pair from a WriteHashMap.
@@ -140,11 +174,16 @@
         cnt))))
 
 (defn map-item-count
-  "Returns the number of key/vals in the map."
+  "Returns the number of key/vals in the map.
+  For schema-optimized maps, excludes the hidden :xdb/values key from the count."
   [^ReadHashMap rhm]
-  (if (instance? ReadCountedHashMap rhm)
-    (.count ^ReadCountedHashMap rhm)
-    (map-item-count-iterated rhm)))
+  (let [base-count (if (instance? ReadCountedHashMap rhm)
+                     (.count ^ReadCountedHashMap rhm)
+                     (map-item-count-iterated rhm))]
+    (if (and (not *show-hidden-keys?*)
+             (map-contains-key? rhm :xdb/values))
+      (dec base-count)
+      base-count)))
 
 (defn map-read-cursor
   "Gets a read cursor for the specified key in a ReadHashMap.
@@ -196,8 +235,6 @@
 ;; ============================================================================
 ;; Sequence Operations
 ;; ============================================================================
-(def ^:dynamic *read-keypath* [])
-(def ^:dynamic *show-hidden-keys?* false)
 
 (defn- schema-vals-array
   "Determines the schema for current keypath and if one exists,

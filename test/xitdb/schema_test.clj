@@ -63,8 +63,7 @@
 (deftest DBReadingTest
   (let [schema-map {[:users :*] UserSchema}
         db (xdb/xit-db :memory)]
-    (binding [conv/schema-for-keypath (fn [keypath]
-                                        (sch/extract-schema schema-map keypath))]
+    (binding [conv/*current-schema* schema-map]
       (reset! db {:users {"12345" UserRecord}})
 
       (testing "Should be equal to stored record"

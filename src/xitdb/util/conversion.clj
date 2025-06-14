@@ -101,7 +101,10 @@
 ;; keypath on the root map
 (def ^:dynamic *current-write-keypath* [])
 
-(def ^:dynamic schema-for-keypath (fn [&_]))
+(def ^:dynamic *current-schema* nil)
+
+(defn schema-for-keypath [keypath]
+  (sch/extract-schema *current-schema* keypath))
 
 (defn schema-for-current-keypath []
   (schema-for-keypath *current-write-keypath*))
