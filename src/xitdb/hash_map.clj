@@ -2,7 +2,8 @@
   (:require
     [xitdb.common :as common]
     [xitdb.util.conversion :as conversion]
-    [xitdb.util.operations :as operations])
+    [xitdb.util.operations :as operations]
+    [xitdb.util.schema :as sch])
   (:import
     [io.github.radarroark.xitdb
      ReadCountedHashMap ReadCursor ReadHashMap
@@ -20,14 +21,48 @@
     (.valAt this key nil))
 
   (valAt [this key not-found]
-    (let [cursor (operations/map-read-cursor rhm key)]
-      (if (nil? cursor)
-        not-found
-        (common/-read-from-cursor cursor))))
+    ;; Check if this is a schema-optimized map and the key is in the schema
+    (let [current-path operations/*read-keypath*
+          schema       (conversion/schema-for-keypath current-path)]
+      (if (and schema 
+               (not operations/*show-hidden-keys?*)
+               (operations/map-contains-key? rhm :xdb/values))
+        ;; Schema-optimized: check if key is in schema first
+        (if-let [idx (sch/index-of-key-in-schema schema key)]
+          ;; Key is in schema, get from :xdb/values array
+          (let [values-cursor (operations/map-read-cursor rhm :xdb/values)
+                values-array  (when values-cursor
+                                (common/-read-from-cursor values-cursor))]
+            (if values-array
+              (binding [operations/*read-keypath* (conj current-path key)]
+                (nth values-array idx))
+              not-found))
+          ;; Key not in schema, check if it exists as regular entry
+          (let [cursor (operations/map-read-cursor rhm key)]
+            (if (nil? cursor)
+              not-found
+              (binding [operations/*read-keypath* (conj current-path key)]
+                (common/-read-from-cursor cursor)))))
+        ;; Standard lookup
+        (let [cursor (operations/map-read-cursor rhm key)]
+          (if (nil? cursor)
+            not-found
+            (binding [operations/*read-keypath* (conj current-path key)]
+              (common/-read-from-cursor cursor)))))))
 
   clojure.lang.Associative
   (containsKey [this key]
-    (operations/map-contains-key? rhm key))
+    ;; Check if this is a schema-optimized map and the key is in the schema
+    (let [current-path operations/*read-keypath*
+          schema       (conversion/schema-for-keypath current-path)]
+      (if (and schema 
+               (not operations/*show-hidden-keys?*)
+               (operations/map-contains-key? rhm :xdb/values))
+        ;; Schema-optimized: check if key is in schema or exists as regular entry
+        (or (some? (sch/index-of-key-in-schema schema key))
+            (operations/map-contains-key? rhm key))
+        ;; Standard containsKey
+        (operations/map-contains-key? rhm key))))
 
   (entryAt [this key]
     (when (.containsKey this key)
@@ -96,8 +131,10 @@
 (extend-protocol common/IMaterialize
   XITDBHashMap
   (-materialize [this]
-    (reduce (fn [m [k v]]
-              (assoc m k (common/materialize v))) {} (seq this))))
+    (let [current-path operations/*read-keypath*]
+      (reduce (fn [m [k v]]
+                (binding [operations/*read-keypath* (conj current-path k)]
+                  (assoc m k (common/materialize v)))) {} (seq this)))))
 
 ;---------------------------------------------------
 

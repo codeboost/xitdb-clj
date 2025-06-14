@@ -3,6 +3,7 @@
             [xitdb.db :as xdb]
             [malli.core :as m]
             [malli.util :as mu]
+            [xitdb.util.operations :as operations]
             [xitdb.util.schema :as sch]
             [xitdb.util.conversion :as conv]
             [clojure.test :refer :all]))
@@ -52,21 +53,25 @@
     (is (= 1 (sch/index-of-key-in-schema extracted :last-name)))
     (is (= 2 (sch/index-of-key-in-schema extracted :address)))))
 
+(def UserRecord {:first-name "John"
+                 :last-name "Doe"
+                 :address {:street "123 Main St"
+                           :city "San Francisco"
+                           :zip 94107
+                           :lonlat [37.7749 -122.4194]}})
 
-(map first (m/children UserSchema))
-
-(deftest DbSwapTest
+(deftest DBReadingTest
   (let [schema-map {[:users :*] UserSchema}
         db (xdb/xit-db :memory)]
     (binding [conv/schema-for-keypath (fn [keypath]
                                         (sch/extract-schema schema-map keypath))]
-      (reset! db {:users {"12345" {:first-name "John"
-                                   :last-name "Doe"
-                                   :address {:street "123 Main St"
-                                             :city "San Francisco"
-                                             :zip 94107
-                                             :lonlat [37.7749 -122.4194]}}}})
+      (reset! db {:users {"12345" UserRecord}})
 
-      (is (= {:users {"12345"
-                      #:xdb{:values ["John" "Doe" #:xdb{:values ["123 Main St" "San Francisco" 94107 [37.7749 -122.4194]]}]}}}
-            (common/materialize @db))))))
+      (testing "Should be equal to stored record"
+        (is (= {:users {"12345" UserRecord}} (common/materialize @db))))
+
+      (testing "Should show the hidden xdb/values array"
+        (binding [operations/*show-hidden-keys?* true]
+          (is (= {:users {"12345"
+                          #:xdb{:values ["John" "Doe" #:xdb{:values ["123 Main St" "San Francisco" 94107 [37.7749 -122.4194]]}]}}}
+                 (common/materialize @db))))))))
