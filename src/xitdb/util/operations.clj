@@ -1,6 +1,5 @@
 (ns xitdb.util.operations
   (:require
-    [xitdb.common :as common]
     [xitdb.util.conversion :as conversion]
     [xitdb.util.validation :as validation]
     [xitdb.util.schema :as sch])
@@ -214,7 +213,7 @@
                           new-path (conj path key)]
                       (binding [*read-keypath* new-path]
                         (let [value (nth values-array idx)]
-                          (cons (clojure.lang.MapEntry. key (common/materialize value))
+                          (cons (clojure.lang.MapEntry. key value)
                                 (step (rest keys) (inc idx)))))))))]
         (step schema-keys 0)))))
 
@@ -240,9 +239,7 @@
                       kv     (.readKeyValuePair cursor)
                       k      (read-from-cursor (.-keyCursor kv))]
                   (if (should-hide-key? k)
-                    ;; Skip this key and continue
                     (step current-path)
-                    ;; Process this key
                     (let [new-path (conj current-path k)]
                       (binding [*read-keypath* new-path]
                         (let [v (read-from-cursor (.-valueCursor kv))]
