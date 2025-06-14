@@ -200,18 +200,23 @@
 (def ^:dynamic *read-keypath* [])
 (def ^:dynamic *show-hidden-keys?* false)
 
-(defn reconstruct-schema-entries
-  "Reconstructs map entries from schema and :xdb/values array."
-  [schema values-array]
+(defn- schema-entries-seq
+  "Returns a lazy sequence of map entries reconstructed from schema and :xdb/values cursor.
+  Only reads individual values from the array as entries are consumed."
+  [schema values-cursor read-from-cursor path]
   (when schema
-    (let [schema-keys (sch/schema-keys schema)]
-      (map-indexed 
-        (fn [idx key]
-          (let [new-path (conj *read-keypath* key)]
-            (binding [*read-keypath* new-path]
-              (let [value (nth values-array idx)]
-                (clojure.lang.MapEntry. key value)))))
-        schema-keys))))
+    (let [schema-keys  (sch/schema-keys schema)
+          values-array (read-from-cursor values-cursor)]
+      (letfn [(step [keys idx]
+                (lazy-seq
+                  (when (seq keys)
+                    (let [key      (first keys)
+                          new-path (conj path key)]
+                      (binding [*read-keypath* new-path]
+                        (let [value (nth values-array idx)]
+                          (cons (clojure.lang.MapEntry. key (common/materialize value))
+                                (step (rest keys) (inc idx)))))))))]
+        (step schema-keys 0)))))
 
 (defn- should-hide-key?
   "Returns true if the key should be hidden from map iteration.
@@ -251,26 +256,24 @@
   then continues with any remaining non-schema entries."
   [^ReadHashMap rhm read-from-cursor]
   #_(println "map-seq from " *read-keypath*)
-  (let [it           (.iterator rhm)
-        current-path *read-keypath*
-        schema       (conversion/schema-for-keypath current-path)
-        
+  (let [it            (.iterator rhm)
+        current-path  *read-keypath*
+        schema        (conversion/schema-for-keypath current-path)
+
         ;; Check if this map has :xdb/values and if we should use schema
-        has-values?   (and schema 
-                          (not *show-hidden-keys?*)
-                          (map-contains-key? rhm :xdb/values))
+        has-values?   (and schema
+                           (not *show-hidden-keys?*)
+                           (map-contains-key? rhm :xdb/values))
         values-cursor (when has-values?
-                        (map-read-cursor rhm :xdb/values))
-        values-array  (when values-cursor
-                        (read-from-cursor values-cursor))]
-    
-    (if (and schema values-array (not *show-hidden-keys?*))
-      ;; Schema-optimized path: reconstruct from :xdb/values + remaining entries
-      (let [schema-entries    (reconstruct-schema-entries schema values-array)
+                        (map-read-cursor rhm :xdb/values))]
+
+    (if (and schema values-cursor (not *show-hidden-keys?*))
+      ;; Schema-optimized path: lazily reconstruct from :xdb/values + remaining entries
+      (let [schema-entries    (schema-entries-seq schema values-cursor read-from-cursor current-path)
             remaining-entries (map-iterator-seq it read-from-cursor current-path)]
-        ;; Concatenate schema entries with remaining entries
+        ;; Concatenate schema entries with remaining entries (both are lazy)
         (concat schema-entries remaining-entries))
-      
+
       ;; Standard path: process all entries normally 
       (map-iterator-seq it read-from-cursor current-path))))
 
