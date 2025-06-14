@@ -226,21 +226,22 @@
   Only reads individual values from the array as entries are consumed.
   If there's no schema for *read-keypath* or no `:xdb/values` value, returns nil."
   [rhm read-from-cursor]
-  (when-let [[schema values-cursor] (schema-vals-array rhm)]
-    (let [path *read-keypath*
-          schema-keys (sch/schema-keys schema)
-          ^ReadArrayList ral (ReadArrayList. values-cursor)]
-      (letfn [(step [keys idx]
-                (lazy-seq
-                  (when (seq keys)
-                    (let [key      (first keys)
-                          new-path (conj path key)]
-                      (binding [*read-keypath* new-path]
-                        (let [value-cursor (.getCursor ral idx)
-                              value        (read-from-cursor value-cursor)]
-                          (cons (clojure.lang.MapEntry. key value)
-                                (step (rest keys) (inc idx)))))))))]
-        (step schema-keys 0)))))
+  (let [[schema values-cursor] (schema-vals-array rhm)
+        schema-keys (and schema (sch/schema-map-keys schema))]
+    (when schema-keys
+      (let [path *read-keypath*
+            ^ReadArrayList ral (ReadArrayList. values-cursor)]
+        (letfn [(step [keys idx]
+                  (lazy-seq
+                    (when (seq keys)
+                      (let [key      (first keys)
+                            new-path (conj path key)]
+                        (binding [*read-keypath* new-path]
+                          (let [value-cursor (.getCursor ral idx)
+                                value        (read-from-cursor value-cursor)]
+                            (cons (clojure.lang.MapEntry. key value)
+                                  (step (rest keys) (inc idx)))))))))]
+          (step schema-keys 0))))))
 
 
 (defn- should-hide-key?
@@ -334,71 +335,89 @@
       (schema-entries-seq rhm read-from-cursor))
     (map-iterator-seq (.iterator rhm) read-from-cursor)))
 
-
 (defn set-seq
-  "Return a lazy seq values from the set."
+  "Return a lazy seq values from the set.
+  Maintains proper *read-keypath* context using :* wildcard for set elements."
   [rhm read-from-cursor]
   (let [it (.iterator rhm)]
     (letfn [(step []
               (lazy-seq
                 (when (.hasNext it)
-                  (let [cursor (.next it)
-                        kv     (.readKeyValuePair cursor)
-                        v      (read-from-cursor (.-keyCursor kv))]
-                    (cons v (step))))))]
+                  (let [cursor   (.next it)
+                        kv       (.readKeyValuePair cursor)
+                        new-path (conj *read-keypath* :*)]
+                    (binding [*read-keypath* new-path]
+                      (let [v (read-from-cursor (.-keyCursor kv))]
+                        (cons v (step))))))))]
       (step))))
 
 (defn array-seq
   "Creates a lazy sequence from a ReadArrayList.
   Uses the provided read-from-cursor function to convert cursors to values.
+  Maintains proper *read-keypath* context using array indices.
   Returns a lazy sequence of the array elements."
   [^ReadArrayList ral read-from-cursor]
-  (let [iter      (.iterator ral)
-        lazy-iter (fn lazy-iter []
-                    (when (.hasNext iter)
-                      (let [cursor (.next iter)
-                            value  (read-from-cursor cursor)]
-                        (lazy-seq (cons value (lazy-iter))))))]
-    (lazy-iter)))
+  (let [count (.count ral)]
+    (letfn [(step [idx]
+              (lazy-seq
+                (when (< idx count)
+                  (let [cursor   (.getCursor ral idx)
+                        new-path (conj *read-keypath* idx)]
+                    (binding [*read-keypath* new-path]
+                      (let [value (read-from-cursor cursor)]
+                        (cons value (step (inc idx)))))))))]
+      (step 0))))
 
 (defn linked-array-seq
   "Creates a lazy sequence from a ReadLinkedArrayList.
   Uses the provided read-from-cursor function to convert cursors to values.
+  Maintains proper *read-keypath* context using array indices.
   Returns a lazy sequence of the linked array elements."
   [^ReadLinkedArrayList rlal read-from-cursor]
-  (let [iter      (.iterator rlal)
-        lazy-iter (fn lazy-iter []
-                    (when (.hasNext iter)
-                      (let [cursor (.next iter)
-                            value  (read-from-cursor cursor)]
-                        (lazy-seq (cons value (lazy-iter))))))]
-    (lazy-iter)))
+  (let [count (.count rlal)]
+    (letfn [(step [idx]
+              (lazy-seq
+                (when (< idx count)
+                  (let [cursor   (.getCursor rlal idx)
+                        new-path (conj *read-keypath* idx)]
+                    (binding [*read-keypath* new-path]
+                      (let [value (read-from-cursor cursor)]
+                        (cons value (step (inc idx)))))))))]
+      (step 0))))
 
 (defn map-kv-reduce
-  "Efficiently reduces over key-value pairs in a ReadHashMap, skipping hidden keys."
+  "Efficiently reduces over key-value pairs in a ReadHashMap, skipping hidden keys.
+  Maintains proper *read-keypath* context for each key-value pair."
   [^ReadHashMap rhm read-from-cursor f init]
   (let [it (.iterator rhm)]
     (loop [result init]
       (if (.hasNext it)
-        (let [cursor     (.next it)
-              kv         (.readKeyValuePair cursor)
-              k          (read-from-cursor (.-keyCursor kv))
-              v          (read-from-cursor (.-valueCursor kv))
-              new-result (f result k v)]
-          (if (reduced? new-result)
-            @new-result
-            (recur new-result)))
+        (let [cursor (.next it)
+              kv     (.readKeyValuePair cursor)
+              k      (read-from-cursor (.-keyCursor kv))]
+          (if (should-hide-key? k)
+            (recur result) ; Skip hidden keys
+            (let [new-path (conj *read-keypath* k)
+                  v        (binding [*read-keypath* new-path]
+                             (read-from-cursor (.-valueCursor kv)))
+                  new-result (f result k v)]
+              (if (reduced? new-result)
+                @new-result
+                (recur new-result)))))
         result))))
 
 (defn array-kv-reduce
-  "Efficiently reduces over index-value pairs in a ReadArrayList."
+  "Efficiently reduces over index-value pairs in a ReadArrayList.
+  Maintains proper *read-keypath* context using array indices."
   [^ReadArrayList ral read-from-cursor f init]
   (let [count (.count ral)]
     (loop [i      0
            result init]
       (if (< i count)
-        (let [cursor     (.getCursor ral i)
-              v          (read-from-cursor cursor)
+        (let [cursor   (.getCursor ral i)
+              new-path (conj *read-keypath* i)
+              v        (binding [*read-keypath* new-path]
+                         (read-from-cursor cursor))
               new-result (f result i v)]
           (if (reduced? new-result)
             @new-result

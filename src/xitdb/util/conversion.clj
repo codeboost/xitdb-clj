@@ -288,7 +288,7 @@
             avals   (WriteArrayList. acursor)]
         (when (zero? (.count avals))
           (let [key-cursor (.putKeyCursor whm keyhash)
-                sch-keys   (sch/schema-keys schema)
+                sch-keys   (sch/schema-map-keys schema)
                 empty-vals (vec (repeat (count sch-keys) nil))]
             (doseq [_ sch-keys]
               (.append avals (primitive-for nil)))
