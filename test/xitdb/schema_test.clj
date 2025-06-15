@@ -29,6 +29,44 @@
    [:lonlat [:tuple :double :double]]
    [:country :string]])
 
+
+
+;; Complex nested schema test
+(def CompanySchema
+  [:map
+   [:name :string]
+   [:founded :int]])
+
+(def Equipment
+  [:map
+   [:name :string]
+   [:price :int]])
+
+(def DepartmentSchema
+  [:map
+   [:name :string]
+   [:budget :int]
+   [:equipment [:set Equipment]]])
+
+(def ComplexCompanyRecord
+  {:name        "TechCorp"
+   :founded     2010
+   :departments {"engineering" {:name      "Engineering"
+                                :budget    1000000
+                                :equipment #{{:name "High-End Workstation", :price 3500}
+                                             {:name "Server Rack", :price 12000}
+                                             {:name "Development Licenses", :price 5000}}}
+                 "marketing"   {:name      "Marketing"
+                                :budget    500000
+                                :equipment #{{:name "DSLR Camera", :price 2200}
+                                             {:name "Exhibition Booth", :price 8500}}}}})
+
+(def ComplexCompanySchema
+  [:map
+   [:name :string]
+   [:founded :int]
+   [:departments [:map-of :string DepartmentSchema]]])
+
 (deftest extract-schema-test
   (let [schema-map {[:users :*]          UserSchema
                     [:users :* :address] ExtendedAddressSchema
@@ -43,6 +81,17 @@
   (let [schema-map {[:users :*] UserSchema}]
     (is (= UserSchema (sch/extract-schema schema-map [:users "1234"])))
     (is (= AddressSchema (sch/extract-schema schema-map [:users "1234" :address])))))
+
+(deftest extract-schema-root-kp
+  (let [schema-map {[] [:map
+                        [:users [:vector UserSchema]]
+                        [:map-of-equipment [:map-of :string Equipment]]
+                        [:set-of-equipment [:set Equipment]]]}]
+    (is (= UserSchema (sch/extract-schema schema-map [:users "1234"])))
+    (is (= AddressSchema (sch/extract-schema schema-map [:users 0 :address])))
+    #_(is (= Equipment (sch/extract-schema schema-map [:map-of-equipment "1234"])))
+    (is (= Equipment (sch/extract-schema schema-map [:set-of-equipment 0])))
+    (sch/extract-schema schema-map [:map-of-equipment "1234"])))
 
 
 (deftest index-of-key-in-schema-test
@@ -76,35 +125,6 @@
                           #:xdb{:values ["John" "Doe" #:xdb{:values ["123 Main St" "San Francisco" 94107 [37.7749 -122.4194]]}]}}}
                  (common/materialize @db))))))))
 
-;; Complex nested schema test
-(def CompanySchema
-  [:map
-   [:name :string]
-   [:founded :int]])
-
-(def Equipment
-  [:map
-   [:name :string]
-   [:price :int]])
-
-(def DepartmentSchema
-  [:map
-   [:name :string]
-   [:budget :int]
-   [:equipment [:set Equipment]]])
-
-(def ComplexCompanyRecord
-  {:name        "TechCorp"
-   :founded     2010
-   :departments {"engineering" {:name      "Engineering"
-                                :budget    1000000
-                                :equipment #{{:name "High-End Workstation", :price 3500}
-                                             {:name "Server Rack", :price 12000}
-                                             {:name "Development Licenses", :price 5000}}}
-                 "marketing"   {:name      "Marketing"
-                                :budget    500000
-                                :equipment #{{:name "DSLR Camera", :price 2200}
-                                             {:name "Exhibition Booth", :price 8500}}}}})
 
 (deftest SetMapTest
   (let [db (xdb/xit-db :memory)
@@ -138,46 +158,44 @@
       (binding [operations/*show-hidden-keys?* false]
         (common/materialize @db))
 
-      #_(testing "Complex nested schema optimization works"
-          (let [materialized (common/materialize @db)]
-            (println "Expected:" ComplexCompanyRecord)
-            (println "Actual:" (get-in materialized [:companies "techcorp"]))
-            (is (= {:companies {"techcorp" ComplexCompanyRecord}} materialized))))
+      (testing "Complex nested schema optimization works"
+        (let [materialized (common/materialize @db)]
+          (is (= {:companies {"techcorp" ComplexCompanyRecord}} materialized))))
 
-      #_(testing "Shows nested :xdb/values arrays in debug mode"
-          (binding [operations/*show-hidden-keys?* true]
-            (let [debug-result     (common/materialize @db)
-                  company          (get-in debug-result [:companies "techcorp"])
-                  engineering-dept (get-in company [:departments "engineering"])]
+      (testing "Shows nested :xdb/values arrays in debug mode"
+        (binding [operations/*show-hidden-keys?* true]
+          (let [debug-result     (common/materialize @db)
+                company          (get-in debug-result [:companies "techcorp"])
+                engineering-dept (get-in company [:departments "engineering"])]
 
-              ;; Company should use schema optimization
-              (is (contains? company :xdb/values))
-              (is (= "TechCorp" (first (get company :xdb/values))))
+            ;; Company should use schema optimization
+            (is (contains? company :xdb/values))
+            (is (= "TechCorp" (first (get company :xdb/values))))
 
-              ;; Department should use schema optimization
-              (is (contains? engineering-dept :xdb/values))
-              (is (= "Engineering" (first (get engineering-dept :xdb/values))))
+            ;; Department should use schema optimization
+            (is (contains? engineering-dept :xdb/values))
+            (is (= "Engineering" (first (get engineering-dept :xdb/values))))
 
-              ;; Equipment set should be stored in the :xdb/values array at index 2
-              (let [dept-values   (get engineering-dept :xdb/values)
-                    equipment-set (nth dept-values 2)]
-                (is (set? equipment-set))
-                (is (= 3 (count equipment-set))))))
+            ;; Equipment set should be stored in the :xdb/values array at index 2
+            (let [dept-values   (get engineering-dept :xdb/values)
+                  equipment-set (nth dept-values 2)]
+              (is (set? equipment-set))
+              (is (= 3 (count equipment-set))))))
 
-          (testing "Schema-optimized fields are properly reconstructed"
-            ;; Test without debug mode to see normal reconstruction
-            (let [normal-result    (common/materialize @db)
-                  company          (get-in normal-result [:companies "techcorp"])
-                  engineering-dept (get-in company [:departments "engineering"])]
-              (is (= "Engineering" (:name engineering-dept)))
-              (is (= 1000000 (:budget engineering-dept)))
-              (is (= 3 (count (:equipment engineering-dept))))
-              (is (set? (:equipment engineering-dept)))))
+        (testing "Schema-optimized fields are properly reconstructed"
+          ;; Test without debug mode to see normal reconstruction
+          (let [normal-result    (common/materialize @db)
+                company          (get-in normal-result [:companies "techcorp"])
+                engineering-dept (get-in company [:departments "engineering"])]
+            (is (= "Engineering" (:name engineering-dept)))
+            (is (= 1000000 (:budget engineering-dept)))
+            (is (= 3 (count (:equipment engineering-dept))))
+            (is (set? (:equipment engineering-dept)))))
 
-          (testing "Keypath patterns match correctly"
-            ;; Test that different keypath patterns are resolved correctly
-            (is (= CompanySchema (sch/extract-schema complex-schema-map [:companies "techcorp"])))
-            (is (= DepartmentSchema (sch/extract-schema complex-schema-map [:companies "techcorp" :departments "engineering"])))
-            (let [equipment-schema (sch/extract-schema complex-schema-map [:companies "techcorp" :departments "engineering" :equipment :*])]
-              (println "Equipment schema found:" equipment-schema)
-              (is (= Equipment equipment-schema))))))))
+        (testing "Keypath patterns match correctly"
+          ;; Test that different keypath patterns are resolved correctly
+          (is (= CompanySchema (sch/extract-schema complex-schema-map [:companies "techcorp"])))
+          (is (= DepartmentSchema (sch/extract-schema complex-schema-map [:companies "techcorp" :departments "engineering"])))
+          (let [equipment-schema (sch/extract-schema complex-schema-map [:companies "techcorp" :departments "engineering" :equipment :*])]
+            (println "Equipment schema found:" equipment-schema)
+            (is (= Equipment equipment-schema))))))))

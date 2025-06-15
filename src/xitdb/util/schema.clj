@@ -32,9 +32,19 @@
 (defn extract-schema [schema-map keypath]
   (let [extracted (some-> schema-map (extract-schema- keypath))
         type  (some-> extracted m/type)]
+    (cond
+      (some->> type (contains? #{:set :vector :list}))
+      (second extracted))
+
     (if (some->> type (contains? #{:set :vector :list}))
       (second extracted)
       extracted)))
+
+#_(defn extract-schema [schema-map keypath]
+    (some-> schema-map (extract-schema- keypath)))
+
+(defn map-schema? [schema]
+  (= :map (some-> schema m/type)))
 
 (defn index-of-key-in-schema [schema key]
   (when schema
