@@ -2,10 +2,8 @@
   (:require [xitdb.common :as common]
             [xitdb.db :as xdb]
             [malli.core :as m]
-            [malli.util :as mu]
             [xitdb.util.operations :as operations]
             [xitdb.util.schema :as schema]
-            [xitdb.util.schema :as sch]
             [xitdb.util.conversion :as conv]
             [clojure.test :refer :all]))
 

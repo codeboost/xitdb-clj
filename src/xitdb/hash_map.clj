@@ -70,20 +70,14 @@
 
   java.lang.Iterable
   (iterator [this]
-    (binding [operations/*read-keypath* keypath]
-      (let [iter (clojure.lang.SeqIterator. (seq this))]
-        (reify java.util.Iterator
-          (hasNext [_]
-            (.hasNext iter))
-          (next [_]
-            (.next iter))
-          (remove [_]
-            (throw (UnsupportedOperationException. "XITDBHashMap iterator is read-only")))))))
+    (let [seq-data (binding [operations/*read-keypath* keypath]
+                     (seq this))]
+      (clojure.lang.SeqIterator. seq-data)))
 
   clojure.core.protocols/IKVReduce
   (kv-reduce [this f init]
     (binding [operations/*read-keypath* keypath]
-      (operations/map-kv-reduce rhm #(common/-read-from-cursor %) f init)))
+      (operations/map-kv-reduce rhm common/-read-from-cursor f init)))
 
   common/IUnwrap
   (-unwrap [this]
@@ -170,7 +164,7 @@
 
   clojure.core.protocols/IKVReduce
   (kv-reduce [this f init]
-    (operations/map-kv-reduce whm #(common/-read-from-cursor %) f init))
+    (operations/map-kv-reduce whm common/-read-from-cursor f init))
 
   common/ISlot
   (-slot [this]
