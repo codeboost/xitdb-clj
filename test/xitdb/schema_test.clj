@@ -87,7 +87,7 @@
   (let [db (xdb/xit-db :memory)]
     (binding [conv/*current-schema* ComplexCompanySchema]
       (reset! db ComplexCompanyRecord)
-      (binding [operations/*show-hidden-keys?* true]
+      (binding [operations/*show-hidden-keys?* false]
         (is (= ComplexCompanyRecord
                (common/materialize @db)))))))
 
@@ -120,15 +120,15 @@
     (binding [conv/*current-schema* schema]
       (reset! db dbval)
 
-      #_(testing "stored as xdb/values?"
-          (binding [operations/*show-hidden-keys?* true]
-            (is (= #:xdb{:values [{:home #:xdb{:values ["123 Main St" "Boston" 12345]},
-                                   :work #:xdb{:values ["456 Elm St" "Cambridge" 67890]},
-                                   :other #:xdb{:values ["343 Elm St" "Foo" 54]}}]}
-                   (common/materialize @db)))))
+      (testing "stored as xdb/values?"
+        (binding [operations/*show-hidden-keys?* true]
+          (is (= #:xdb{:values [{:home #:xdb{:values ["123 Main St" "Boston" 12345]},
+                                 :work #:xdb{:values ["456 Elm St" "Cambridge" 67890]},
+                                 :other #:xdb{:values ["343 Elm St" "Foo" 54]}}]}
+                 (common/materialize @db)))))
 
-      #_(testing "Correctly reconstructs?"
-          (is (= dbval (common/materialize @db))))
+      (testing "Correctly reconstructs?"
+        (is (= dbval (common/materialize @db))))
 
       (common/materialize @db))))
 

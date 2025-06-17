@@ -212,7 +212,6 @@
   If the `:xdb/values` value exists, returns a vector of [schema-for-keypath vals-array-cursor].
   `vals-array-cursor` is a cursor on the `:xdb/vals` array list. "
   [rhm]
-  (println "*read-keypath*" *read-keypath*)
   (let [schema        (conversion/schema-for-keypath *read-keypath*)
         has-values?   (and schema
                            (not *show-hidden-keys?*)
@@ -271,7 +270,7 @@
                     (let [new-path (conj current-path k)]
                       (binding [*read-keypath* new-path]
                         (let [v (read-from-cursor (.-valueCursor kv))]
-                          (cons (clojure.lang.MapEntry. k v) (step new-path))))))))))]
+                          (cons (clojure.lang.MapEntry. k v) (step current-path))))))))))]
     (step *read-keypath*)))
 
 (defn- map-read-value
@@ -290,7 +289,6 @@
   Returns nil if there's no matching schema, key not found in schema, or no `:xdb/values` array
   exists in the map."
   [rhm key read-from-cursor]
-  (println "map-read-schema-value" *read-keypath* key)
   (let [schema      (conversion/schema-for-keypath *read-keypath*)
         map-schema? (schema/map-schema? schema)
         idx         (when map-schema? (sch/index-of-key-in-schema schema key))

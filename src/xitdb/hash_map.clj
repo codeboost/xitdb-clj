@@ -59,7 +59,6 @@
   clojure.lang.Seqable
   (seq [this]
     (binding [operations/*read-keypath* keypath]
-      (println "map-seq called with keypath:" keypath)
       (map-seq rhm)))
 
   clojure.lang.IFn
