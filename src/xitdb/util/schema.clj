@@ -23,7 +23,7 @@
   [schema path]
   (loop [sch  schema
          ks   (seq path)]
-    (if (nil? ks)
+    (if (or (nil? sch) (nil? ks))
       sch
       (let [k  (first ks)
             ks (next ks)]

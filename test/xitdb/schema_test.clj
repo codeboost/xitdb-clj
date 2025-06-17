@@ -65,12 +65,29 @@
    [:founded :int]
    [:departments [:map-of :string DepartmentSchema]]])
 
+(defn UserRecord
+  "A sample user record conforming to UserSchema."
+  []
+  {:first-name "John"
+   :last-name  "Doe"
+   :address    {:street "123 Main St"
+                :city   "Springfield"
+                :zip    12345
+                :lonlat [42.3601 -71.0589]}})
+
+(deftest UsertRecordTest
+  (let [db (xdb/xit-db :memory)]
+    (binding [conv/*current-schema* UserSchema]
+      (reset! db (UserRecord))
+      (is (= (UserRecord)
+             (common/materialize @db))))))
+
 
 (deftest DbWithSchemaTest
   (let [db (xdb/xit-db :memory)]
     (binding [conv/*current-schema* ComplexCompanySchema]
       (reset! db ComplexCompanyRecord)
-      (binding [operations/*show-hidden-keys?* false]
+      (binding [operations/*show-hidden-keys?* true]
         (is (= ComplexCompanyRecord
                (common/materialize @db)))))))
 
@@ -99,20 +116,21 @@
                             :work  {:street "456 Elm St" :city "Cambridge" :zipcode 67890}
                             :other {:street "343 Elm St" :city "Foo" :zipcode 54}}}
         db     (xdb/xit-db :memory)]
-
     (is (m/validate schema dbval))
     (binding [conv/*current-schema* schema]
       (reset! db dbval)
 
-      (testing "stored as xdb/values?"
-        (binding [operations/*show-hidden-keys?* true]
-          (is (= #:xdb{:values [{:home #:xdb{:values ["123 Main St" "Boston" 12345]},
-                                 :work #:xdb{:values ["456 Elm St" "Cambridge" 67890]},
-                                 :other #:xdb{:values ["343 Elm St" "Foo" 54]}}]}
-                 (common/materialize @db)))))
+      #_(testing "stored as xdb/values?"
+          (binding [operations/*show-hidden-keys?* true]
+            (is (= #:xdb{:values [{:home #:xdb{:values ["123 Main St" "Boston" 12345]},
+                                   :work #:xdb{:values ["456 Elm St" "Cambridge" 67890]},
+                                   :other #:xdb{:values ["343 Elm St" "Foo" 54]}}]}
+                   (common/materialize @db)))))
 
-      (testing "Correctly reconstructs?"
-        (is (= dbval (common/materialize @db)))))))
+      #_(testing "Correctly reconstructs?"
+          (is (= dbval (common/materialize @db))))
+
+      (common/materialize @db))))
 
 
 (deftest complex-nested-map
@@ -134,17 +152,17 @@
     (is (m/validate schema dbval))
     (binding [conv/*current-schema* schema]
       (reset! db dbval)
-      #_(testing "Correctly reconstructs?"
-          (is (= dbval (common/materialize @db))))
-      #_(testing "Stores correctly"
-          (binding [operations/*show-hidden-keys?* true]
-            (is (= #:xdb{:values [{"jane" #:xdb{:values [{:home #:xdb{:values ["789 Oak St" "Somerville" 54321]},
-                                                          :work #:xdb{:values ["101 Pine St" "Arlington" 98765]},
-                                                          :other #:xdb{:values ["202 Maple St" "Lexington" 11223]}}]},
-                                   "john" #:xdb{:values [{:home #:xdb{:values ["123 Main St" "Boston" 12345]},
-                                                          :work #:xdb{:values ["456 Elm St" "Cambridge" 67890]},
-                                                          :other #:xdb{:values ["343 Elm St" "Foo" 54]}}]}}]}
-                   (common/materialize @db)))))
+      (testing "Correctly reconstructs?"
+        (is (= dbval (common/materialize @db))))
+      (testing "Stores correctly"
+        (binding [operations/*show-hidden-keys?* true]
+          (is (= #:xdb{:values [{"jane" #:xdb{:values [{:home #:xdb{:values ["789 Oak St" "Somerville" 54321]},
+                                                        :work #:xdb{:values ["101 Pine St" "Arlington" 98765]},
+                                                        :other #:xdb{:values ["202 Maple St" "Lexington" 11223]}}]},
+                                 "john" #:xdb{:values [{:home #:xdb{:values ["123 Main St" "Boston" 12345]},
+                                                        :work #:xdb{:values ["456 Elm St" "Cambridge" 67890]},
+                                                        :other #:xdb{:values ["343 Elm St" "Foo" 54]}}]}}]}
+                 (common/materialize @db)))))
 
 
       (testing "get-in works"

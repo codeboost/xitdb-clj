@@ -5,7 +5,8 @@
     [xitdb.hash-map :as xhash-map]
     [xitdb.hash-set :as xhash-set]
     [xitdb.linked-list :as xlinked-list]
-    [xitdb.util.conversion :as conversion])
+    [xitdb.util.conversion :as conversion]
+    [xitdb.util.operations :as operations])
   (:import
     [io.github.radarroark.xitdb ReadCursor Slot Tag WriteCursor]))
 
@@ -16,7 +17,8 @@
   If `for-writing?` is true, the function will return XITDBWrite* types, so `cursor` must be a WriteCursor.
   `BYTES` values will be pre-processed (see `conversion/read-bytes-with-format-tag`)."
   [^ReadCursor cursor for-writing?]
-  (let [value-tag (some-> cursor .slot .tag)]
+  (let [keypath   (when-not for-writing? operations/*read-keypath*)
+        value-tag (some-> cursor .slot .tag)]
     #_(println "read-from-cursor" value-tag "for-writing?" for-writing?)
     (cond
       (contains? #{Tag/SHORT_BYTES Tag/BYTES} value-tag)

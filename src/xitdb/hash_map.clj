@@ -13,19 +13,20 @@
   "The cursors used must implement the IReadFromCursor protocol."
   (operations/map-seq rhm common/-read-from-cursor))
 
-(deftype XITDBHashMap [^ReadHashMap rhm kpath]
+(deftype XITDBHashMap [^ReadHashMap rhm keypath]
 
   clojure.lang.ILookup
   (valAt [this key]
     (.valAt this key nil))
 
   (valAt [this key not-found]
-    (binding [operations/*read-keypath* kpath]
+    (binding [operations/*read-keypath* keypath]
       (operations/map-val-at rhm key not-found common/-read-from-cursor)))
 
   clojure.lang.Associative
   (containsKey [this key]
-    (operations/map-contains-key-schema-aware? rhm key))
+    (binding [operations/*read-keypath* keypath]
+      (operations/map-contains-key-schema-aware? rhm key)))
 
   (entryAt [this key]
     (when (.containsKey this key)
@@ -40,7 +41,8 @@
     (throw (UnsupportedOperationException. "XITDBHashMap is read-only")))
 
   (count [this]
-    (operations/map-item-count rhm))
+    (binding [operations/*read-keypath* keypath]
+      (operations/map-item-count rhm)))
 
   clojure.lang.IPersistentCollection
   (cons [_ _]
@@ -53,9 +55,12 @@
     (and (instance? clojure.lang.IPersistentMap other)
          (= (into {} this) (into {} other))))
 
+
   clojure.lang.Seqable
   (seq [this]
-    (map-seq rhm))
+    (binding [operations/*read-keypath* keypath]
+      (println "map-seq called with keypath:" keypath)
+      (map-seq rhm)))
 
   clojure.lang.IFn
   (invoke [this k]
@@ -66,18 +71,20 @@
 
   java.lang.Iterable
   (iterator [this]
-    (let [iter (clojure.lang.SeqIterator. (seq this))]
-      (reify java.util.Iterator
-        (hasNext [_]
-          (.hasNext iter))
-        (next [_]
-          (.next iter))
-        (remove [_]
-          (throw (UnsupportedOperationException. "XITDBHashMap iterator is read-only"))))))
+    (binding [operations/*read-keypath* keypath]
+      (let [iter (clojure.lang.SeqIterator. (seq this))]
+        (reify java.util.Iterator
+          (hasNext [_]
+            (.hasNext iter))
+          (next [_]
+            (.next iter))
+          (remove [_]
+            (throw (UnsupportedOperationException. "XITDBHashMap iterator is read-only")))))))
 
   clojure.core.protocols/IKVReduce
   (kv-reduce [this f init]
-    (operations/map-kv-reduce rhm #(common/-read-from-cursor %) f init))
+    (binding [operations/*read-keypath* keypath]
+      (operations/map-kv-reduce rhm #(common/-read-from-cursor %) f init)))
 
   common/IUnwrap
   (-unwrap [this]
@@ -94,13 +101,11 @@
 (extend-protocol common/IMaterialize
   XITDBHashMap
   (-materialize [this]
-    (let [current-path operations/*read-keypath*]
-      (reduce (fn [m [k v]]
-                (binding [operations/*read-keypath* (conj current-path k)]
-                  (assoc m k (common/materialize v)))) {} (seq this)))))
+    (reduce (fn [m [k v]]
+              (binding [operations/*read-keypath* (conj (.-keypath this) k)]
+                (assoc m k (common/materialize v)))) {} (seq this))))
 
 ;---------------------------------------------------
-
 
 (deftype XITDBWriteHashMap [^WriteHashMap whm]
   clojure.lang.IPersistentCollection
@@ -185,13 +190,13 @@
   (->XITDBWriteHashMap (WriteHashMap. write-cursor)))
 
 (defn xhash-map [^ReadCursor read-cursor]
-  (->XITDBHashMap (ReadHashMap. read-cursor)))
+  (->XITDBHashMap (ReadHashMap. read-cursor) operations/*read-keypath*))
 
 (defn xwrite-hash-map-counted [^WriteCursor write-cursor]
   (->XITDBWriteHashMap (WriteCountedHashMap. write-cursor)))
 
 (defn xhash-map-counted [^ReadCursor read-cursor]
-  (->XITDBHashMap (ReadCountedHashMap. read-cursor)))
+  (->XITDBHashMap (ReadCountedHashMap. read-cursor) operations/*read-keypath*))
 
 
 
