@@ -1,6 +1,7 @@
 (ns xitdb.util.operations
   (:require
     [xitdb.util.conversion :as conversion]
+    [xitdb.util.schema :as schema]
     [xitdb.util.validation :as validation]
     [xitdb.util.schema :as sch])
   (:import
@@ -212,7 +213,7 @@
   `vals-array-cursor` is a cursor on the `:xdb/vals` array list. "
   [rhm]
   (let [current-path  *read-keypath*
-        schema        (conversion/schema-for-keypath current-path)
+        schema        (schema/extract-read-schema conversion/*current-schema* current-path)
         has-values?   (and schema
                            (not *show-hidden-keys?*)
                            (map-contains-key? rhm :xdb/values))
@@ -292,6 +293,7 @@
   (let [schema      (conversion/schema-for-keypath *read-keypath*)
         idx         (when schema (sch/index-of-key-in-schema schema key))
         vals-cursor (when idx (map-read-cursor rhm :xdb/values))]
+    (println "map-read-schema-value" *read-keypath* key idx)
     (when vals-cursor
       (let [^ReadArrayList ral (ReadArrayList. vals-cursor)]
         (binding [*read-keypath* (conj *read-keypath* key)]
@@ -302,6 +304,7 @@
   Returns the value for the key, or not-found if the key doesn't exist."
   [^ReadHashMap rhm key not-found read-from-cursor]
   (let [[read? val] (map-read-schema-value rhm key read-from-cursor)]
+    (println "read?" read? "val:" val)
     (if read?
       val
       (map-read-value rhm key not-found read-from-cursor))))
@@ -340,16 +343,16 @@
   Maintains proper *read-keypath* context using :* wildcard for set elements."
   [rhm read-from-cursor]
   (let [it (.iterator rhm)]
-    (letfn [(step []
+    (letfn [(step [path]
               (lazy-seq
                 (when (.hasNext it)
                   (let [cursor   (.next it)
                         kv       (.readKeyValuePair cursor)
-                        new-path (conj *read-keypath* :*)]
+                        new-path (conj path :*)]
                     (binding [*read-keypath* new-path]
                       (let [v (read-from-cursor (.-keyCursor kv))]
-                        (cons v (step))))))))]
-      (step))))
+                        (cons v (step new-path))))))))]
+      (step *read-keypath*))))
 
 (defn array-seq
   "Creates a lazy sequence from a ReadArrayList.

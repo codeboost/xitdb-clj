@@ -13,14 +13,15 @@
   "The cursors used must implement the IReadFromCursor protocol."
   (operations/map-seq rhm common/-read-from-cursor))
 
-(deftype XITDBHashMap [^ReadHashMap rhm]
+(deftype XITDBHashMap [^ReadHashMap rhm kpath]
 
   clojure.lang.ILookup
   (valAt [this key]
     (.valAt this key nil))
 
   (valAt [this key not-found]
-    (operations/map-val-at rhm key not-found common/-read-from-cursor))
+    (binding [operations/*read-keypath* kpath]
+      (operations/map-val-at rhm key not-found common/-read-from-cursor)))
 
   clojure.lang.Associative
   (containsKey [this key]

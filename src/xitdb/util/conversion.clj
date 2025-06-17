@@ -104,7 +104,8 @@
 (def ^:dynamic *current-schema* nil)
 
 (defn schema-for-keypath [keypath]
-  (sch/extract-schema *current-schema* keypath))
+  (when *current-schema*
+    (sch/sub-schema *current-schema* keypath)))
 
 (defn schema-for-current-keypath []
   (schema-for-keypath *current-write-keypath*))
@@ -281,25 +282,25 @@
   the key is in schema and the value was written to the :xdb/values array.
   Returns nil otherwise."
   [whm k v]
-  (let [schema (schema-for-current-keypath)]
-    (when (sch/map-schema? schema)
-      (when-let [idx (sch/index-of-key-in-schema schema k)]
-        (let [keyhash (db-key-hash (-> whm .cursor .db) :xdb/values)
-              acursor (.putCursor whm keyhash)
-              avals   (WriteArrayList. acursor)]
-          (when (zero? (.count avals))
-            (let [key-cursor (.putKeyCursor whm keyhash)
-                  sch-keys   (sch/schema-map-keys schema)
-                  empty-vals (vec (repeat (count sch-keys) nil))]
-              (doseq [_ sch-keys]
-                (.append avals (primitive-for nil)))
-              (.writeIfEmpty key-cursor (v->slot! key-cursor :xdb/values))
-              (.write acursor (v->slot! acursor avals))))
+  (let [schema (schema-for-current-keypath)
+        map-schema? (some-> schema sch/map-schema?)
+        idx (when map-schema? (sch/index-of-key-in-schema schema k))]
+    (when idx
+      (let [keyhash (db-key-hash (-> whm .cursor .db) :xdb/values)
+            acursor (.putCursor whm keyhash)
+            avals   (WriteArrayList. acursor)]
+        (when (zero? (.count avals))
+          (let [key-cursor (.putKeyCursor whm keyhash)
+                sch-keys   (sch/schema-map-keys schema)]
+            (doseq [_ sch-keys]
+              (.append avals (primitive-for nil)))
+            (.writeIfEmpty key-cursor (v->slot! key-cursor :xdb/values))
+            (.write acursor (v->slot! acursor avals))))
 
-          (let [value-cur (.putCursor avals idx)]
-            (binding [*current-write-keypath* (conj *current-write-keypath* k)]
-              (.write value-cur (v->slot! value-cur v))))
-          true)))))
+        (let [value-cur (.putCursor avals idx)]
+          (binding [*current-write-keypath* (conj *current-write-keypath* k)]
+            (.write value-cur (v->slot! value-cur v))))
+        true))))
 
 (defn assoc-in-map!
   "Associates a key/value to the map.
@@ -319,7 +320,7 @@
   [^WriteCursor cursor m]
   (let [whm (WriteCountedHashMap. cursor)]
     (doseq [[k v] m]
-      (when-not (schema-assoc-in-vals! whm k v)
+      (when-not (schema-assoc-in-vals! whm  k v)
         (assoc-in-map! whm k v)))
     (.-cursor whm)))
 

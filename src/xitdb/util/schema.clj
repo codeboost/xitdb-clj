@@ -3,48 +3,49 @@
     [malli.core :as m]
     [malli.util :as mu]))
 
-(defn extract-schema- [schema-map keypath]
-  (let [exact-matching-patterns (filter
-                                  (fn [pattern]
-                                    (and (= (count pattern) (count keypath))
-                                         (every? true?
-                                                 (map (fn [p k] (or (= p :*) (= p k)))
-                                                      pattern keypath))))
-                                  (keys schema-map))]
-    (if (seq exact-matching-patterns)
-      (let [best-pattern (apply max-key (fn [pattern] (count (remove #(= % :*) pattern))) exact-matching-patterns)
-            result (get schema-map best-pattern)]
-        (if (m/schema? result) (m/form result) result))
-      (let [shorter-patterns (filter
-                               (fn [pattern]
-                                 (and (< (count pattern) (count keypath))
-                                      (every? true?
-                                              (map (fn [p k] (or (= p :*) (= p k)))
-                                                   pattern (take (count pattern) keypath)))))
-                               (keys schema-map))]
-        (when (seq shorter-patterns)
-          (let [best-pattern   (apply max-key (fn [pattern] (count (remove #(= % :*) pattern))) shorter-patterns)
-                base-schema    (get schema-map best-pattern)
-                remaining-path (drop (count best-pattern) keypath)
-                result         (mu/get-in base-schema remaining-path)]
-            (if (m/schema? result) (m/form result) result)))))))
 
-(defn extract-schema [schema-map keypath]
-  (let [extracted (some-> schema-map (extract-schema- keypath))
-        type  (some-> extracted m/type)]
-    (cond
-      (some->> type (contains? #{:set :vector :list}))
-      (second extracted))
+(defn schema-map-keys [schema]
+  (when (= (m/type schema) :map)
+    (mapv first (m/children schema))))
 
-    (if (some->> type (contains? #{:set :vector :list}))
-      (second extracted)
-      extracted)))
+(defn- map-entry-schema
+  "Pick the schema for one key inside a [:map …] entry vector.
+   Handles both [:key child-schema] and
+   [:key {:optional true …} child-schema] shapes."
+  [entry]
+  ;; entry looks like [:user {:optional true} [:map …]]       (3+ elems)
+  ;; or [:user [:map …]]                                      (2 elems)
+  (let [[_ maybe-meta schema] (concat entry [nil nil])]      ; pad with nils
+    (if (map? maybe-meta) schema maybe-meta)))
 
-#_(defn extract-schema [schema-map keypath]
-    (some-> schema-map (extract-schema- keypath)))
+(defn sub-schema
+  "Returns the sub-schema found by following `path` inside `schema`."
+  [schema path]
+  (loop [sch  schema
+         ks   (seq path)]
+    (if (nil? ks)
+      sch
+      (let [k  (first ks)
+            ks (next ks)]
+        (case (m/type sch)
+          :map     (let [next-sch (->> (rest sch)                 ; skip :map tag
+                                       (some #(when (= k (first %))
+                                                (map-entry-schema %))))]
+                     (recur next-sch ks))
 
-(defn map-schema? [schema]
-  (= :map (some-> schema m/type)))
+          ;; ------------------------------------ map-of (key schema _ value schema)
+          :map-of  (let [[_ _ value-sch] sch]
+                     (recur value-sch ks))
+
+          ;; ------------------------------------ vectors / lists / seqs
+          (:vector :sequential :list :set)
+          (let [[_ elem-sch] sch]
+            (recur elem-sch ks))
+
+          ;; ------------------------------------ unsupported?
+          (throw (ex-info "Don't know how to step into this schema type"
+                          {:type (m/type sch) :schema sch})))))))
+
 
 (defn index-of-key-in-schema [schema key]
   (when schema
@@ -56,6 +57,24 @@
                (remove nil?)
                first))))
 
-(defn schema-map-keys [schema]
-  (when (= (m/type schema) :map)
-    (mapv first (m/children schema))))
+
+(defn map-schema? [schema]
+  (= :map (some-> schema m/type)))
+
+(defn extract-read-schema
+  "Extracts a schema at the given keypath from a schema map.
+   For collection schemas (:set, :vector, :list, :sequential), returns the element schema.
+   For :map-of schemas, returns the value schema.
+   For other schemas, returns the schema itself."
+  [schema-map keypath]
+  (let [extracted (some-> schema-map (sub-schema keypath))
+        type  (some-> extracted m/type)]
+    (cond
+      (some->> type (contains? #{:set :vector :list :sequential}))
+      (second extracted)
+
+      (some->> type (contains? #{:map-of}))
+      (nth extracted 2)
+
+      :else
+      extracted)))

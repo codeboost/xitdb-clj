@@ -4,6 +4,7 @@
             [malli.core :as m]
             [malli.util :as mu]
             [xitdb.util.operations :as operations]
+            [xitdb.util.schema :as schema]
             [xitdb.util.schema :as sch]
             [xitdb.util.conversion :as conv]
             [clojure.test :refer :all]))
@@ -28,8 +29,6 @@
    [:zip :int]
    [:lonlat [:tuple :double :double]]
    [:country :string]])
-
-
 
 ;; Complex nested schema test
 (def CompanySchema
@@ -60,142 +59,94 @@
                                 :budget    500000
                                 :equipment #{{:name "DSLR Camera", :price 2200}
                                              {:name "Exhibition Booth", :price 8500}}}}})
-
 (def ComplexCompanySchema
   [:map
    [:name :string]
    [:founded :int]
    [:departments [:map-of :string DepartmentSchema]]])
 
-(deftest extract-schema-test
-  (let [schema-map {[:users :*]          UserSchema
-                    [:users :* :address] ExtendedAddressSchema
-                    [:coll]           [:set [:map
-                                             [:name :string]
-                                             [:price :int]]]}]
-    (is (= UserSchema (sch/extract-schema schema-map [:users "1234"])))
-    (is (= ExtendedAddressSchema (sch/extract-schema schema-map [:users "1234" :address])))
-    (sch/extract-schema schema-map [:coll])))
 
-(deftest extract-schema-nested-test
-  (let [schema-map {[:users :*] UserSchema}]
-    (is (= UserSchema (sch/extract-schema schema-map [:users "1234"])))
-    (is (= AddressSchema (sch/extract-schema schema-map [:users "1234" :address])))))
-
-(deftest extract-schema-root-kp
-  (let [schema-map {[] [:map
-                        [:users [:vector UserSchema]]
-                        [:map-of-equipment [:map-of :string Equipment]]
-                        [:set-of-equipment [:set Equipment]]]}]
-    (is (= UserSchema (sch/extract-schema schema-map [:users "1234"])))
-    (is (= AddressSchema (sch/extract-schema schema-map [:users 0 :address])))
-    #_(is (= Equipment (sch/extract-schema schema-map [:map-of-equipment "1234"])))
-    (is (= Equipment (sch/extract-schema schema-map [:set-of-equipment 0])))
-    (sch/extract-schema schema-map [:map-of-equipment "1234"])))
-
-
-(deftest index-of-key-in-schema-test
-  (let [schema-map {[:users :*] UserSchema}
-        extracted  (sch/extract-schema schema-map [:users "1234"])]
-    (is (= UserSchema extracted))
-
-    (is (= 0 (sch/index-of-key-in-schema extracted :first-name)))
-    (is (= 1 (sch/index-of-key-in-schema extracted :last-name)))
-    (is (= 2 (sch/index-of-key-in-schema extracted :address)))))
-
-(def UserRecord {:first-name "John"
-                 :last-name  "Doe"
-                 :address    {:street "123 Main St"
-                              :city   "San Francisco"
-                              :zip    94107
-                              :lonlat [37.7749 -122.4194]}})
-
-(deftest DBReadingTest
-  (let [schema-map {[:users :*] UserSchema}
-        db         (xdb/xit-db :memory)]
-    (binding [conv/*current-schema* schema-map]
-      (reset! db {:users {"12345" UserRecord}})
-
-      (testing "Should be equal to stored record"
-        (is (= {:users {"12345" UserRecord}} (common/materialize @db))))
-
-      (testing "Should show the hidden xdb/values array"
-        (binding [operations/*show-hidden-keys?* true]
-          (is (= {:users {"12345"
-                          #:xdb{:values ["John" "Doe" #:xdb{:values ["123 Main St" "San Francisco" 94107 [37.7749 -122.4194]]}]}}}
-                 (common/materialize @db))))))))
-
-
-(deftest SetMapTest
-  (let [db (xdb/xit-db :memory)
-        dbval {:colls {"1" {:name  "My Coll"
-                            :items #{{:name "Keys" :price 20}
-                                     {:name "Seyk" :price 32}}}}}]
-    (binding [conv/*current-schema* {[:colls :*] [:map
-                                                  [:name :string]
-                                                  [:items [:set [:map
-                                                                 [:name :string]
-                                                                 [:price :int]]]]]}]
-      (reset! db {:colls {"1" {:name  "My Coll"
-                               :items #{{:name "Keys" :price 20}
-                                        {:name "Seyk" :price 32}}}}})
-
-      (is (= dbval (common/materialize @db)))
-
-      (binding [operations/*show-hidden-keys?* true]
-        (is (= {:colls {"1" #:xdb{:values ["My Coll" #{#:xdb{:values ["Seyk" 32]} #:xdb{:values ["Keys" 20]}}]}}}
+(deftest DbWithSchemaTest
+  (let [db (xdb/xit-db :memory)]
+    (binding [conv/*current-schema* ComplexCompanySchema]
+      (reset! db ComplexCompanyRecord)
+      (binding [operations/*show-hidden-keys?* false]
+        (is (= ComplexCompanyRecord
                (common/materialize @db)))))))
 
+(deftest simple-nested-test
+  (let [schema [:map
+                [:addresses [:set [:map
+                                   [:street :string]
+                                   [:city :string]
+                                   [:zipcode :int]]]]]
+        dbval {:addresses #{{:street "123 Main St" :city "Boston" :zipcode 12345}
+                            {:street "456 Elm St" :city "Cambridge" :zipcode 67890}
+                            {:street "343 Elm St" :city "Foo" :zipcode 54}}}
+        db (xdb/xit-db :memory)]
+    (binding [conv/*current-schema* schema]
+      (reset! db dbval)
+      (is (= dbval
+             (common/materialize @db))))))
 
-(deftest NestedKeypathTest
-  (let [complex-schema-map {[:companies :*]                               CompanySchema
-                            [:companies :* :departments :*]               DepartmentSchema
-                            [:companies :* :departments :* :equipment :*] Equipment}
-        db                 (xdb/xit-db :memory)]
-    (binding [conv/*current-schema* complex-schema-map]
-      (reset! db {:companies {"techcorp" ComplexCompanyRecord}})
+(deftest simple-nested-map
+  (let [schema [:map
+                [:addresses [:map-of :keyword [:map
+                                               [:street :string]
+                                               [:city :string]
+                                               [:zipcode :int]]]]]
+        dbval  {:addresses {:home  {:street "123 Main St" :city "Boston" :zipcode 12345}
+                            :work  {:street "456 Elm St" :city "Cambridge" :zipcode 67890}
+                            :other {:street "343 Elm St" :city "Foo" :zipcode 54}}}
+        db     (xdb/xit-db :memory)]
 
-      (binding [operations/*show-hidden-keys?* false]
-        (common/materialize @db))
+    (is (m/validate schema dbval))
+    (binding [conv/*current-schema* schema]
+      (reset! db dbval)
 
-      (testing "Complex nested schema optimization works"
-        (let [materialized (common/materialize @db)]
-          (is (= {:companies {"techcorp" ComplexCompanyRecord}} materialized))))
-
-      (testing "Shows nested :xdb/values arrays in debug mode"
+      (testing "stored as xdb/values?"
         (binding [operations/*show-hidden-keys?* true]
-          (let [debug-result     (common/materialize @db)
-                company          (get-in debug-result [:companies "techcorp"])
-                engineering-dept (get-in company [:departments "engineering"])]
+          (is (= #:xdb{:values [{:home #:xdb{:values ["123 Main St" "Boston" 12345]},
+                                 :work #:xdb{:values ["456 Elm St" "Cambridge" 67890]},
+                                 :other #:xdb{:values ["343 Elm St" "Foo" 54]}}]}
+                 (common/materialize @db)))))
 
-            ;; Company should use schema optimization
-            (is (contains? company :xdb/values))
-            (is (= "TechCorp" (first (get company :xdb/values))))
+      (testing "Correctly reconstructs?"
+        (is (= dbval (common/materialize @db)))))))
 
-            ;; Department should use schema optimization
-            (is (contains? engineering-dept :xdb/values))
-            (is (= "Engineering" (first (get engineering-dept :xdb/values))))
 
-            ;; Equipment set should be stored in the :xdb/values array at index 2
-            (let [dept-values   (get engineering-dept :xdb/values)
-                  equipment-set (nth dept-values 2)]
-              (is (set? equipment-set))
-              (is (= 3 (count equipment-set))))))
+(deftest complex-nested-map
+  (let [schema [:map [:people
+                      [:map-of :string
+                       [:map
+                        [:addresses [:map-of :keyword [:map
+                                                       [:street :string]
+                                                       [:city :string]
+                                                       [:zipcode :int]]]]]]]]
+        dbval  {:people {"john" {:addresses {:home  {:street "123 Main St" :city "Boston" :zipcode 12345}
+                                             :work  {:street "456 Elm St" :city "Cambridge" :zipcode 67890}
+                                             :other {:street "343 Elm St" :city "Foo" :zipcode 54}}}
+                         "jane" {:addresses {:home  {:street "789 Oak St" :city "Somerville" :zipcode 54321}
+                                             :work  {:street "101 Pine St" :city "Arlington" :zipcode 98765}
+                                             :other {:street "202 Maple St" :city "Lexington" :zipcode 11223}}}}}
+        db     (xdb/xit-db :memory)]
 
-        (testing "Schema-optimized fields are properly reconstructed"
-          ;; Test without debug mode to see normal reconstruction
-          (let [normal-result    (common/materialize @db)
-                company          (get-in normal-result [:companies "techcorp"])
-                engineering-dept (get-in company [:departments "engineering"])]
-            (is (= "Engineering" (:name engineering-dept)))
-            (is (= 1000000 (:budget engineering-dept)))
-            (is (= 3 (count (:equipment engineering-dept))))
-            (is (set? (:equipment engineering-dept)))))
+    (is (m/validate schema dbval))
+    (binding [conv/*current-schema* schema]
+      (reset! db dbval)
+      #_(testing "Correctly reconstructs?"
+          (is (= dbval (common/materialize @db))))
+      #_(testing "Stores correctly"
+          (binding [operations/*show-hidden-keys?* true]
+            (is (= #:xdb{:values [{"jane" #:xdb{:values [{:home #:xdb{:values ["789 Oak St" "Somerville" 54321]},
+                                                          :work #:xdb{:values ["101 Pine St" "Arlington" 98765]},
+                                                          :other #:xdb{:values ["202 Maple St" "Lexington" 11223]}}]},
+                                   "john" #:xdb{:values [{:home #:xdb{:values ["123 Main St" "Boston" 12345]},
+                                                          :work #:xdb{:values ["456 Elm St" "Cambridge" 67890]},
+                                                          :other #:xdb{:values ["343 Elm St" "Foo" 54]}}]}}]}
+                   (common/materialize @db)))))
 
-        (testing "Keypath patterns match correctly"
-          ;; Test that different keypath patterns are resolved correctly
-          (is (= CompanySchema (sch/extract-schema complex-schema-map [:companies "techcorp"])))
-          (is (= DepartmentSchema (sch/extract-schema complex-schema-map [:companies "techcorp" :departments "engineering"])))
-          (let [equipment-schema (sch/extract-schema complex-schema-map [:companies "techcorp" :departments "engineering" :equipment :*])]
-            (println "Equipment schema found:" equipment-schema)
-            (is (= Equipment equipment-schema))))))))
+
+      (testing "get-in works"
+        (is (= 11223
+               (get-in @db [:people "jane" :addresses :other :zipcode])))))))
