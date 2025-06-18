@@ -166,3 +166,31 @@
       (testing "get-in works"
         (is (= 11223
                (get-in @db [:people "jane" :addresses :other :zipcode])))))))
+
+
+(deftest flexi-schema-test
+  (let [schema [:map-of :keyword [:map
+                                  [:street :string]
+                                  [:city :string]
+                                  [:zipcode :int]]]
+        dbval  {:home  {:street "123 Main St" :city "Boston" :zipcode 12345}
+                :work  {:street "456 Elm St" :city "Cambridge" :zipcode 67890 :country "USA"}
+                :other {:street "343 Elm St" :city "Foo" :zipcode 54 "state" "MA"}}
+        db     (xdb/xit-db :memory)]
+
+    (is (m/validate schema dbval))
+    (binding [conv/*current-schema* schema]
+      (reset! db dbval)
+      (testing "Correctly reconstructs?"
+        (is (= dbval (common/materialize @db))))
+
+      (testing "Stores extra keys as map keys"
+        (binding [operations/*show-hidden-keys?* true]
+          (is (= {:home #:xdb{:values ["123 Main St" "Boston" 12345]},
+                  :work {:country "USA", :xdb/values ["456 Elm St" "Cambridge" 67890]},
+                  :other {"state" "MA", :xdb/values ["343 Elm St" "Foo" 54]}}
+
+                 (common/materialize @db))))))))
+
+
+
