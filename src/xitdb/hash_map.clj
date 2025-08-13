@@ -56,7 +56,7 @@
          (= (into {} this) (into {} other))))
 
   clojure.lang.Seqable
-  (seq [this]
+  (seq [_]
     (map-seq rhm))
 
   clojure.lang.IFn
@@ -161,7 +161,7 @@
         (common/-read-from-cursor (conversion/map-write-cursor whm key)))))
 
   clojure.lang.Seqable
-  (seq [this]
+  (seq [_]
     (map-seq whm))
 
   clojure.core.protocols/IKVReduce
@@ -192,6 +192,3 @@
 
 (defn xhash-map-counted [^ReadCursor read-cursor]
   (->XITDBHashMap (ReadCountedHashMap. read-cursor)))
-
-
-
