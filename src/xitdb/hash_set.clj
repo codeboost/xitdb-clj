@@ -41,7 +41,7 @@
     (operations/set-item-count rhs))
 
   clojure.lang.Seqable
-  (seq [_]
+  (seq [this]
     (set-seq rhs))
 
   clojure.lang.ILookup
@@ -117,7 +117,7 @@
     (operations/set-item-count whs))
 
   clojure.lang.Seqable
-  (seq [_]
+  (seq [this]
     (set-seq whs))
 
   clojure.lang.ILookup

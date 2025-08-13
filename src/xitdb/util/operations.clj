@@ -197,31 +197,33 @@
 ;; ============================================================================
 
 (defn map-seq
-  "Return a lazy seq of key-value MapEntry pairs."
+  "Return a lazy seq of key-value MapEntry pairs, or nil if empty."
   [^ReadHashMap rhm read-from-cursor]
   (let [it (.iterator rhm)]
-    (letfn [(step []
-              (lazy-seq
-                (when (.hasNext it)
-                  (let [cursor (.next it)
-                        kv     (.readKeyValuePair cursor)
-                        k      (read-from-cursor (.-keyCursor kv))]
-                    (let [v (read-from-cursor (.-valueCursor kv))]
-                      (cons (clojure.lang.MapEntry. k v) (step)))))))]
-      (step))))
+    (when (.hasNext it)
+      (letfn [(step []
+                (lazy-seq
+                  (when (.hasNext it)
+                    (let [cursor (.next it)
+                          kv     (.readKeyValuePair cursor)
+                          k      (read-from-cursor (.-keyCursor kv))]
+                      (let [v (read-from-cursor (.-valueCursor kv))]
+                        (cons (clojure.lang.MapEntry. k v) (step)))))))]
+        (step)))))
 
 (defn set-seq
-  "Return a lazy seq values from the set."
+  "Return a lazy seq values from the set, or nil if empty."
   [rhm read-from-cursor]
   (let [it (.iterator rhm)]
-    (letfn [(step []
-              (lazy-seq
-                (when (.hasNext it)
-                  (let [cursor (.next it)
-                        kv     (.readKeyValuePair cursor)
-                        v      (read-from-cursor (.-keyCursor kv))]
-                    (cons v (step))))))]
-      (step))))
+    (when (.hasNext it)
+      (letfn [(step []
+                (lazy-seq
+                  (when (.hasNext it)
+                    (let [cursor (.next it)
+                          kv     (.readKeyValuePair cursor)
+                          v      (read-from-cursor (.-keyCursor kv))]
+                      (cons v (step))))))]
+        (step)))))
 
 (defn array-seq
   "Creates a lazy sequence from a ReadArrayList.
