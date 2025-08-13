@@ -57,7 +57,8 @@
 
   clojure.lang.Seqable
   (seq [this]
-    (map-seq rhm))
+    (when (pos? (operations/map-item-count rhm))
+      (map-seq rhm)))
 
   clojure.lang.IFn
   (invoke [this k]
@@ -162,7 +163,8 @@
 
   clojure.lang.Seqable
   (seq [this]
-    (map-seq whm))
+    (when (pos? (operations/map-item-count whm))
+      (map-seq whm)))
 
   clojure.core.protocols/IKVReduce
   (kv-reduce [this f init]
@@ -192,6 +194,3 @@
 
 (defn xhash-map-counted [^ReadCursor read-cursor]
   (->XITDBHashMap (ReadCountedHashMap. read-cursor)))
-
-
-

@@ -1,6 +1,7 @@
 (ns xitdb.map-test
   (:require
     [clojure.test :refer :all]
+    [xitdb.db :as xdb]
     [xitdb.test-utils :as tu :refer [with-db]]))
 
 (deftest map-with-complex-keys
@@ -20,3 +21,15 @@
       
       (is (= {:foo {[1 :bar] 31}}
              (tu/materialize @db))))))
+
+(deftest KeysTest
+  (with-open [db (xitdb.db/xit-db :memory)]
+    (reset! db {})
+    (is (= nil (keys @db)))
+    (is (= 0 (count (keys @db))))))
+
+(deftest KeysTestSet
+  (with-open [db (xitdb.db/xit-db :memory)]
+    (reset! db #{})
+    (is (= 0 (count (keys @db))))
+    (is (= nil (keys @db)))))

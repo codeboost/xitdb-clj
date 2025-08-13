@@ -41,8 +41,9 @@
     (operations/set-item-count rhs))
 
   clojure.lang.Seqable
-  (seq [_]
-    (set-seq rhs))
+  (seq [this]
+    (when (pos? (operations/set-item-count rhs))
+      (set-seq rhs)))
 
   clojure.lang.ILookup
   (valAt [this k]
@@ -117,8 +118,9 @@
     (operations/set-item-count whs))
 
   clojure.lang.Seqable
-  (seq [_]
-    (set-seq whs))
+  (seq [this]
+    (when (pos? (operations/set-item-count whs))
+      (set-seq whs)))
 
   clojure.lang.ILookup
   (valAt [this k]
