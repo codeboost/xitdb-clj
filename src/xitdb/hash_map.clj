@@ -57,8 +57,7 @@
 
   clojure.lang.Seqable
   (seq [this]
-    (when (pos? (operations/map-item-count rhm))
-      (map-seq rhm)))
+    (map-seq rhm))
 
   clojure.lang.IFn
   (invoke [this k]
@@ -163,8 +162,7 @@
 
   clojure.lang.Seqable
   (seq [this]
-    (when (pos? (operations/map-item-count whm))
-      (map-seq whm)))
+    (map-seq whm))
 
   clojure.core.protocols/IKVReduce
   (kv-reduce [this f init]
