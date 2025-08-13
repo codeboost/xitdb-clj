@@ -23,13 +23,13 @@
              (tu/materialize @db))))))
 
 (deftest KeysTest
-  (with-open [db (xitdb.db/xit-db :memory)]
+  (with-open [db (xdb/xit-db :memory)]
     (reset! db {})
     (is (= nil (keys @db)))
     (is (= 0 (count (keys @db))))))
 
 (deftest KeysTestSet
-  (with-open [db (xitdb.db/xit-db :memory)]
+  (with-open [db (xdb/xit-db :memory)]
     (reset! db #{})
     (is (= 0 (count (keys @db))))
     (is (= nil (keys @db)))))
