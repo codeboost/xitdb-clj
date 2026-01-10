@@ -104,9 +104,6 @@
   [v]
   (cond
 
-    (validation/lazy-seq? v)
-    (throw (IllegalArgumentException. "Lazy sequences can be infinite and not allowed!"))
-
     (string? v)
     (database-bytes v)
 
@@ -146,6 +143,9 @@
   Falls back to primitive conversion for other types."
   [^WriteCursor cursor v]
   (cond
+
+    (validation/lazy-seq? v)
+    (throw (IllegalArgumentException. "Lazy sequences can be infinite and not allowed!"))
 
     (instance? WriteArrayList v)
     (-> ^WriteArrayList v .cursor .slot)
