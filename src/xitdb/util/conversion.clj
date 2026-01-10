@@ -190,7 +190,9 @@
       (.write cursor nil)
       (.slot (list->LinkedArrayListCursor! cursor v)))
 
-    (validation/vector-or-chunked? v)
+    (or (validation/vector-or-chunked? v)
+        ;; any other List implementations should just be an ArrayList
+        (instance? java.util.List v))
     (do
       (.write cursor nil)
       (.slot (coll->ArrayListCursor! cursor v)))
