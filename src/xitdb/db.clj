@@ -122,6 +122,13 @@
   [xdb]
   (.count (read-history (-> xdb .tldbro .get))))
 
+(defn deref-at
+  "Returns the version of the data at the specified index."
+  [xdb index]
+  (let [history (read-history (-> xdb .tldbro .get))
+        cursor  (.getCursor history index)]
+    (xtypes/read-from-cursor cursor false)))
+
 (deftype XITDBDatabase [tldbro rwdb lock]
 
   java.io.Closeable
@@ -131,9 +138,7 @@
 
   clojure.lang.IDeref
   (deref [this]
-    (let [history (read-history (.get tldbro))
-          cursor  (.getCursor history -1)]
-      (xtypes/read-from-cursor cursor false)))
+    (deref-at this -1))
 
   clojure.lang.IAtom
 
