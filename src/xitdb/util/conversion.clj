@@ -189,17 +189,17 @@
       (.write cursor nil)
       (.slot (list->LinkedArrayListCursor! cursor v)))
 
+    (set? v)
+    (do
+      (.write cursor nil)
+      (.slot (set->WriteCursor! cursor v)))
+
     (or (validation/vector-or-chunked? v)
         ;; any other List implementations should just be an ArrayList
         (instance? java.util.List v))
     (do
       (.write cursor nil)
       (.slot (coll->ArrayListCursor! cursor v)))
-
-    (set? v)
-    (do
-      (.write cursor nil)
-      (.slot (set->WriteCursor! cursor v)))
 
     :else
     (primitive-for v)))
@@ -222,6 +222,10 @@
         (validation/list-or-cons? v)
         (let [v-cursor (.appendCursor write-array)]
           (list->LinkedArrayListCursor! v-cursor v))
+
+        (set? v)
+        (let [v-cursor (.appendCursor write-array)]
+          (set->WriteCursor! v-cursor v))
 
         (validation/vector-or-chunked? v)
         (let [v-cursor (.appendCursor write-array)]
@@ -250,6 +254,10 @@
         (validation/list-or-cons? v)
         (let [v-cursor (.appendCursor write-list)]
           (list->LinkedArrayListCursor! v-cursor v))
+
+        (set? v)
+        (let [v-cursor (.appendCursor write-list)]
+          (set->WriteCursor! v-cursor v))
 
         (validation/vector-or-chunked? v)
         (let [v-cursor (.appendCursor write-list)]

@@ -9,6 +9,9 @@
 (defprotocol IMaterialize
   (-materialize [this]))
 
+(defprotocol IMaterializeShallow
+  (-materialize-shallow [this]))
+
 (defprotocol IUnwrap
   (-unwrap [this]))
 

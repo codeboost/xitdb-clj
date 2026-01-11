@@ -19,7 +19,7 @@
     (.count ral))
 
   (cons [this o]
-    (cons o (common/materialize this)))
+    (cons o (common/-materialize-shallow this)))
 
   (empty [this]
     [])
@@ -33,7 +33,7 @@
 
   clojure.lang.IPersistentVector
   (assocN [this i val]
-    (assoc (common/materialize this) i val))
+    (assoc (common/-materialize-shallow this) i val))
 
   (length [this]
     (.count ral))
@@ -127,6 +127,12 @@
   (-materialize [this]
     (reduce (fn [a v]
               (conj a (common/materialize v))) [] (seq this))))
+
+(extend-protocol common/IMaterializeShallow
+  XITDBArrayList
+  (-materialize-shallow [this]
+    (reduce (fn [a v]
+              (conj a v)) [] (seq this))))
 
 ;;-----------------------------------------------
 
