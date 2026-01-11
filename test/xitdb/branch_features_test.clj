@@ -194,7 +194,7 @@
 ;; =============================================================================
 
 (deftest reset-with-islot-value-test
-  (testing "reset! can use ISlot values directly"
+  (testing "reset! throws when using ISlot values from a different database"
     (with-open [db1 (xdb/xit-db :memory)
                 db2 (xdb/xit-db :memory)]
       ;; Set up first database with some data
@@ -203,20 +203,39 @@
 
       ;; Get the value from db1 (which implements ISlot)
       (let [val-from-db1 @db1]
-        ;; Reset db2 with the ISlot value
-        (reset! db2 val-from-db1)
+        ;; Attempting to reset db2 with an ISlot from db1 should throw
+        (is (thrown? IllegalArgumentException (reset! db2 val-from-db1))))))
 
-        ;; db2 should now have the same data
-        (is (= (tu/materialize @db1) (tu/materialize @db2)))))))
+  (testing "reset! works when materializing the value first"
+    (with-open [db1 (xdb/xit-db :memory)
+                db2 (xdb/xit-db :memory)]
+      (reset! db1 {:users [{:name "Alice"} {:name "Bob"}]
+                   :config {:theme "dark"}})
+
+      ;; Materialize the value before passing to reset!
+      (reset! db2 (tu/materialize @db1))
+
+      ;; db2 should now have the same data
+      (is (= (tu/materialize @db1) (tu/materialize @db2))))))
 
 (deftest reset-with-nested-islot-value-test
-  (testing "reset! with nested ISlot values preserves structure"
+  (testing "reset! throws when using nested ISlot values from a different database"
     (with-open [db1 (xdb/xit-db :memory)
                 db2 (xdb/xit-db :memory)]
       (reset! db1 {:data [[1 2 3] [4 5 6] [7 8 9]]})
 
       ;; Get a nested value that implements ISlot
       (let [nested-val (get @db1 :data)]
+        ;; Attempting to reset db2 with an ISlot from db1 should throw
+        (is (thrown? IllegalArgumentException (reset! db2 nested-val))))))
+
+  (testing "reset! works with nested values when materializing first"
+    (with-open [db1 (xdb/xit-db :memory)
+                db2 (xdb/xit-db :memory)]
+      (reset! db1 {:data [[1 2 3] [4 5 6] [7 8 9]]})
+
+      ;; Materialize the nested value before passing to reset!
+      (let [nested-val (tu/materialize (get @db1 :data))]
         (reset! db2 nested-val)
         (is (= [[1 2 3] [4 5 6] [7 8 9]] (tu/materialize @db2)))))))
 
@@ -408,15 +427,15 @@
       (is (= 2 (get (xdb/deref-at db 3) :value))))))
 
 (deftest reset-preserves-data-integrity-test
-  (testing "reset! with ISlot values from another database preserves data integrity"
+  (testing "reset! with materialized values from another database preserves data integrity"
     (with-open [db1 (xdb/xit-db :memory)
                 db2 (xdb/xit-db :memory)]
       ;; Create large nested data
       (reset! db1 {:data (vec (range 100))
                    :nested {:more (vec (range 50))}})
 
-      ;; Reset db2 with the value (materializes for cross-database safety)
-      (reset! db2 @db1)
+      ;; Materialize the value before passing to reset! (required for cross-database)
+      (reset! db2 (tu/materialize @db1))
 
       ;; Verify data integrity
       (is (= (tu/materialize @db1) (tu/materialize @db2)))

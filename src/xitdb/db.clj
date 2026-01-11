@@ -54,7 +54,7 @@
       (when (not= db coll-db)
         (throw (IllegalArgumentException. "Cannot write value from a different database")))
       (.write cursor (common/-slot new-value)))
-    (conversion/v->slot! cursor new-value)))
+    (.write cursor (conversion/v->slot! cursor new-value))))
 
 (defn xitdb-reset!
   "Sets the value of the database to `new-value`.
