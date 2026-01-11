@@ -68,6 +68,10 @@
         (remove [_]
           (throw (UnsupportedOperationException. "XITDBHashSet iterator is read-only"))))))
 
+  common/ISlot
+  (-slot [this]
+    (-> rhs .cursor .slot))
+
   common/IUnwrap
   (-unwrap [_]
     rhs)

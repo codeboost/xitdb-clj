@@ -103,6 +103,9 @@
   [v]
   (cond
 
+    (or (nil? v) (instance? Slot v))
+    v
+
     (string? v)
     (database-bytes v)
 
@@ -117,9 +120,6 @@
 
     (double? v)
     (Database$Float. v)
-
-    (nil? v)
-    nil
 
     (instance? java.time.Instant v)
     (database-bytes (str v) (fmt-tag-value :inst))
