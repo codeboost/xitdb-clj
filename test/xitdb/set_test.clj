@@ -91,3 +91,26 @@
   (with-db [db (tu/test-db)]
     (reset! db #{:one 1 []})
     (is (= #{:one 1 []} @db))))
+
+;; =============================================================================
+;; Read-only set operations returning Clojure types
+;; =============================================================================
+
+(deftest read-only-set-disj-test
+  (testing "disj on XITDBHashSet returns a regular set"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db #{:a :b :c})
+      (let [db-val @db
+            result (disj db-val :b)]
+        ;; Result should be a regular Clojure set
+        (is (set? result))
+        (is (not (instance? xitdb.hash_set.XITDBHashSet result)))
+        (is (= #{:a :c} result))))))
+
+(deftest read-only-set-conj-test
+  (testing "conj on XITDBHashSet returns a result with element added"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db #{:a :b})
+      (let [db-val @db
+            result (cons :c db-val)]
+        (is (= :c (first result)))))))
