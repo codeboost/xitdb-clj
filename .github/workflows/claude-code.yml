@@ -5,23 +5,29 @@ on:
     types: [created]
   pull_request_review_comment:
     types: [created]
-  issues:
-    types: [opened, assigned]
   pull_request_review:
     types: [submitted]
+  issues:
+    types: [opened, assigned]
 
 jobs:
   claude-code:
+    # Run when:
+    # - PR review comments mention @claude
+    # - Issue comments mention @claude
+    # - PR reviews mention @claude
+    # - New issues are assigned to claude
     if: |
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'issues' && (github.event.action == 'opened' || github.event.action == 'assigned') && contains(github.event.issue.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude'))
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+      (github.event_name == 'issues' && github.event.action == 'assigned' && github.event.assignee.login == 'claude')
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      issues: write
+      contents: write
       pull-requests: write
+      issues: write
+      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -29,6 +35,12 @@ jobs:
           fetch-depth: 0
 
       - name: Run Claude Code
-        uses: anthropics/claude-code-action@beta
+        uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Optional: Use a custom trigger phrase (default is @claude)
+          # trigger_phrase: "@claude"
+          # Optional: Specify allowed tools
+          # allowed_tools: "Bash,Read,Write,Edit,Glob,Grep"
+          # Optional: Add custom instructions
+          # custom_instructions: "Follow the project's coding conventions in CLAUDE.md"
