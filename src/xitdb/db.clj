@@ -51,7 +51,9 @@
   Returns new history index."
   [^WriteArrayList history new-value]
   (append-context! history nil (fn [^WriteCursor cursor]
-                                 (conversion/v->slot! cursor new-value))))
+                                 (if (satisfies? common/ISlot new-value)
+                                   (.write cursor (common/-slot new-value))
+                                   (conversion/v->slot! cursor new-value)))))
 
 (defn v->slot!
   "Converts a value to a slot which can be written to a cursor.
