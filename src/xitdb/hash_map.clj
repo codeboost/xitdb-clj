@@ -35,18 +35,18 @@
         (clojure.lang.MapEntry. key v))))
 
   (assoc [this k v]
-    (assoc (common/materialize this) k v))
+    (assoc (common/-materialize-shallow this) k v))
 
   clojure.lang.IPersistentMap
   (without [this k]
-    (dissoc (common/materialize this) k))
+    (dissoc (common/-materialize-shallow this) k))
 
   (count [this]
     (operations/map-item-count rhm))
 
   clojure.lang.IPersistentCollection
   (cons [this o]
-    (cons o (common/materialize this)))
+    (. clojure.lang.RT (conj (common/-materialize-shallow this) o)))
 
   (empty [this]
     {})
@@ -102,6 +102,12 @@
   (-materialize [this]
     (reduce (fn [m [k v]]
               (assoc m k (common/materialize v))) {} (seq this))))
+
+(extend-protocol common/IMaterializeShallow
+  XITDBHashMap
+  (-materialize-shallow [this]
+    (reduce (fn [m [k v]]
+              (assoc m k v)) {} (seq this))))
 
 ;---------------------------------------------------
 

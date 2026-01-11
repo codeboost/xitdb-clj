@@ -20,7 +20,7 @@
     (.count rlal))
 
   (cons [this o]
-    (cons o (common/materialize this)))
+    (cons o (common/-materialize-shallow this)))
 
   (empty [this]
     '())
@@ -107,6 +107,12 @@
   (-materialize [this]
     (reduce (fn [a v]
               (conj a (common/materialize v))) [] (seq this))))
+
+(extend-protocol common/IMaterializeShallow
+  XITDBLinkedArrayList
+  (-materialize-shallow [this]
+    (reduce (fn [a v]
+              (conj a v)) [] (seq this))))
 
 ;; -----------------------------------------------------------------
 

@@ -16,7 +16,7 @@
 (deftype XITDBHashSet [^ReadHashSet rhs]
   clojure.lang.IPersistentSet
   (disjoin [this k]
-    (disj (common/materialize this) k))
+    (disj (common/-materialize-shallow this) k))
 
   (contains [this k]
     (operations/set-contains? rhs k))
@@ -27,7 +27,7 @@
 
   clojure.lang.IPersistentCollection
   (cons [this o]
-    (cons o (common/materialize this)))
+    (cons o (common/-materialize-shallow this)))
 
   (empty [this]
     #{})
@@ -88,6 +88,11 @@
   XITDBHashSet
   (-materialize [this]
     (into #{} (map common/materialize (seq this)))))
+
+(extend-protocol common/IMaterializeShallow
+  XITDBHashSet
+  (-materialize-shallow [this]
+    (into #{} (seq this))))
 
 ;; Writable version of the set
 (deftype XITDBWriteHashSet [^WriteHashSet whs]
