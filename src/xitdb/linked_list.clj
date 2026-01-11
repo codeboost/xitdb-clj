@@ -19,11 +19,11 @@
   (count [_]
     (.count rlal))
 
-  (cons [_ o]
-    (throw (UnsupportedOperationException. "XITDBLinkedArrayList is read-only")))
+  (cons [this o]
+    (cons o (common/-materialize-shallow this)))
 
-  (empty [_]
-    (throw (UnsupportedOperationException. "XITDBLinkedArrayList is read-only")))
+  (empty [this]
+    '())
 
   (equiv [this other]
     (and (sequential? other)
@@ -86,6 +86,14 @@
         (aset result len nil))
       result))
 
+  common/ISlot
+  (-slot [this]
+    (-> rlal .cursor .slot))
+
+  common/IUnwrap
+  (-unwrap [_]
+    rlal)
+
   Object
   (toString [this]
     (pr-str (into [] this))))
@@ -99,6 +107,12 @@
   (-materialize [this]
     (reduce (fn [a v]
               (conj a (common/materialize v))) [] (seq this))))
+
+(extend-protocol common/IMaterializeShallow
+  XITDBLinkedArrayList
+  (-materialize-shallow [this]
+    (reduce (fn [a v]
+              (conj a v)) [] (seq this))))
 
 ;; -----------------------------------------------------------------
 

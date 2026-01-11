@@ -111,7 +111,7 @@ Use `materialize` to convert a nested `XITDB` data structure to a native Clojure
 ## No query language
 
 Use `filter`, `group-by`, `reduce`, etc.
-If you want a query engine, `datascript` works out of the box, you can store the datoms as a vector in the db.
+If you want a query engine, [`datascript` works out of the box](https://gist.github.com/radarroark/663116fcd204f3f89a7e43f52fa676ef), you can store the datoms as a vector in the db.
 
 Here's a taste of how your queries could look like:
 ```clojure 
@@ -135,6 +135,14 @@ from the respective `history index`.
 The root data structure of a xitdb database is a ArrayList, called 'history'.
 Each transaction adds a new entry into this array, which points to the latest value 
 of the database (usually a map).
+
+```clojure
+(xdb/deref-at db -1) ;; the most recent value, same as @db
+(xdb/deref-at db -2) ;; the second most recent value
+(xdb/deref-at db 0)  ;; the earliest value
+(xdb/deref-at db 1)  ;; the second value
+```
+
 It is also possible to create a transaction which returns the previous and current 
 values of the database, by setting the `*return-history?*` binding to `true`.
 

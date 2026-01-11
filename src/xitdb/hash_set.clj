@@ -15,8 +15,8 @@
 
 (deftype XITDBHashSet [^ReadHashSet rhs]
   clojure.lang.IPersistentSet
-  (disjoin [_ k]
-    (throw (UnsupportedOperationException. "XITDBHashSet is read-only")))
+  (disjoin [this k]
+    (disj (common/-materialize-shallow this) k))
 
   (contains [this k]
     (operations/set-contains? rhs k))
@@ -26,11 +26,11 @@
       k))
 
   clojure.lang.IPersistentCollection
-  (cons [_ o]
-    (throw (UnsupportedOperationException. "XITDBHashSet is read-only")))
+  (cons [this o]
+    (cons o (common/-materialize-shallow this)))
 
-  (empty [_]
-    (throw (UnsupportedOperationException. "XITDBHashSet is read-only")))
+  (empty [this]
+    #{})
 
   (equiv [this other]
     (and (instance? clojure.lang.IPersistentSet other)
@@ -68,6 +68,10 @@
         (remove [_]
           (throw (UnsupportedOperationException. "XITDBHashSet iterator is read-only"))))))
 
+  common/ISlot
+  (-slot [this]
+    (-> rhs .cursor .slot))
+
   common/IUnwrap
   (-unwrap [_]
     rhs)
@@ -84,6 +88,11 @@
   XITDBHashSet
   (-materialize [this]
     (into #{} (map common/materialize (seq this)))))
+
+(extend-protocol common/IMaterializeShallow
+  XITDBHashSet
+  (-materialize-shallow [this]
+    (into #{} (seq this))))
 
 ;; Writable version of the set
 (deftype XITDBWriteHashSet [^WriteHashSet whs]

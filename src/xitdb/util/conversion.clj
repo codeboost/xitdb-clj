@@ -42,7 +42,6 @@
   {:keyword     "kw"
    :boolean     "bl"
    :key-integer "ki"
-   :nil         "nl"                                        ;; TODO: Could use Tag/NONE instead
    :inst        "in"
    :date        "da"
    :coll        "co"
@@ -104,8 +103,8 @@
   [v]
   (cond
 
-    (validation/lazy-seq? v)
-    (throw (IllegalArgumentException. "Lazy sequences can be infinite and not allowed!"))
+    (or (nil? v) (instance? Slot v))
+    v
 
     (string? v)
     (database-bytes v)
@@ -121,9 +120,6 @@
 
     (double? v)
     (Database$Float. v)
-
-    (nil? v)
-    (database-bytes "" (fmt-tag-value :nil))
 
     (instance? java.time.Instant v)
     (database-bytes (str v) (fmt-tag-value :inst))
@@ -146,6 +142,9 @@
   Falls back to primitive conversion for other types."
   [^WriteCursor cursor v]
   (cond
+
+    (validation/lazy-seq? v)
+    (throw (IllegalArgumentException. "Lazy sequences can be infinite and not allowed!"))
 
     (instance? WriteArrayList v)
     (-> ^WriteArrayList v .cursor .slot)
@@ -190,15 +189,17 @@
       (.write cursor nil)
       (.slot (list->LinkedArrayListCursor! cursor v)))
 
-    (validation/vector-or-chunked? v)
-    (do
-      (.write cursor nil)
-      (.slot (coll->ArrayListCursor! cursor v)))
-
     (set? v)
     (do
       (.write cursor nil)
       (.slot (set->WriteCursor! cursor v)))
+
+    (or (validation/vector-or-chunked? v)
+        ;; any other List implementations should just be an ArrayList
+        (instance? java.util.List v))
+    (do
+      (.write cursor nil)
+      (.slot (coll->ArrayListCursor! cursor v)))
 
     :else
     (primitive-for v)))
@@ -222,7 +223,12 @@
         (let [v-cursor (.appendCursor write-array)]
           (list->LinkedArrayListCursor! v-cursor v))
 
-        (validation/vector-or-chunked? v)
+        (set? v)
+        (let [v-cursor (.appendCursor write-array)]
+          (set->WriteCursor! v-cursor v))
+
+        (or (validation/vector-or-chunked? v)
+            (instance? java.util.List v))
         (let [v-cursor (.appendCursor write-array)]
           (coll->ArrayListCursor! v-cursor v))
 
@@ -249,6 +255,10 @@
         (validation/list-or-cons? v)
         (let [v-cursor (.appendCursor write-list)]
           (list->LinkedArrayListCursor! v-cursor v))
+
+        (set? v)
+        (let [v-cursor (.appendCursor write-list)]
+          (set->WriteCursor! v-cursor v))
 
         (validation/vector-or-chunked? v)
         (let [v-cursor (.appendCursor write-list)]
@@ -310,9 +320,6 @@
       (= fmt-tag (fmt-tag-value :date))
       (java.util.Date/from
         (java.time.Instant/parse str))
-
-      (= fmt-tag (fmt-tag-value :nil))
-      nil
 
       :else
       str)))

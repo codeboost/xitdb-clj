@@ -18,11 +18,11 @@
   (count [_]
     (.count ral))
 
-  (cons [_ o]
-    (throw (UnsupportedOperationException. "XITDBArrayList is read-only")))
+  (cons [this o]
+    (cons o (common/-materialize-shallow this)))
 
-  (empty [_]
-    (throw (UnsupportedOperationException. "XITDBArrayList is read-only")))
+  (empty [this]
+    [])
 
   (equiv [this other]
     (and (sequential? other)
@@ -31,9 +31,20 @@
 
   clojure.lang.Sequential  ;; Add this to mark as sequential
 
+  clojure.lang.Associative
+  (assoc [this k v]
+    (assoc (common/-materialize-shallow this) k v))
+
+  (containsKey [this k]
+    (and (integer? k) (>= k 0) (< k (.count ral))))
+
+  (entryAt [this k]
+    (when (.containsKey this k)
+      (clojure.lang.MapEntry. k (.valAt this k))))
+
   clojure.lang.IPersistentVector
   (assocN [this i val]
-    (throw (UnsupportedOperationException. "XITDBArrayList is read-only")))
+    (assoc (common/-materialize-shallow this) i val))
 
   (length [this]
     (.count ral))
@@ -106,6 +117,10 @@
         (aset result len nil))
       result))
 
+  common/ISlot
+  (-slot [this]
+    (-> ral .cursor .slot))
+
   common/IUnwrap
   (-unwrap [this]
     ral)
@@ -123,6 +138,12 @@
   (-materialize [this]
     (reduce (fn [a v]
               (conj a (common/materialize v))) [] (seq this))))
+
+(extend-protocol common/IMaterializeShallow
+  XITDBArrayList
+  (-materialize-shallow [this]
+    (reduce (fn [a v]
+              (conj a v)) [] (seq this))))
 
 ;;-----------------------------------------------
 

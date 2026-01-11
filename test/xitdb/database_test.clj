@@ -1,6 +1,8 @@
 (ns xitdb.database-test
   (:require
     [clojure.test :refer :all]
+    [xitdb.db :as xdb]
+    [xitdb.common :as common]
     [xitdb.test-utils :as tu :refer [with-db]]))
 
 (deftest DatabaseTest
@@ -441,7 +443,72 @@
     (is (= '(2 3 4 5) @db))
     (is (tu/db-equal-to-atom? db))))
 
+;; =============================================================================
+;; ISlot implementation tests for read-only types
+;; =============================================================================
 
+(deftest islot-read-only-map-test
+  (testing "XITDBHashMap implements ISlot"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db {:foo :bar})
+      (let [db-val @db]
+        (is (satisfies? common/ISlot db-val))
+        (is (some? (common/-slot db-val)))))))
 
+(deftest islot-read-only-vector-test
+  (testing "XITDBArrayList implements ISlot"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db [1 2 3])
+      (let [db-val @db]
+        (is (satisfies? common/ISlot db-val))
+        (is (some? (common/-slot db-val)))))))
 
+(deftest islot-read-only-set-test
+  (testing "XITDBHashSet implements ISlot"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db #{:a :b :c})
+      (let [db-val @db]
+        (is (satisfies? common/ISlot db-val))
+        (is (some? (common/-slot db-val)))))))
+
+(deftest islot-read-only-list-test
+  (testing "XITDBLinkedArrayList implements ISlot"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db '(1 2 3))
+      (let [db-val @db]
+        (is (satisfies? common/ISlot db-val))
+        (is (some? (common/-slot db-val)))))))
+
+;; =============================================================================
+;; Cross-database reset! tests
+;; =============================================================================
+
+(deftest reset-with-nested-islot-value-test
+  (testing "reset! works with nested values when materializing first"
+    (with-open [db1 (xdb/xit-db :memory)
+                db2 (xdb/xit-db :memory)]
+      (reset! db1 {:data [[1 2 3] [4 5 6] [7 8 9]]})
+
+      ;; Materialize the nested value before passing to reset!
+      (let [nested-val (tu/materialize (get @db1 :data))]
+        (reset! db2 nested-val)
+        (is (= [[1 2 3] [4 5 6] [7 8 9]] (tu/materialize @db2)))))))
+
+(deftest reset-preserves-data-integrity-test
+  (testing "reset! with materialized values from another database preserves data integrity"
+    (with-open [db1 (xdb/xit-db :memory)
+                db2 (xdb/xit-db :memory)]
+      ;; Create large nested data
+      (reset! db1 {:data (vec (range 100))
+                   :nested {:more (vec (range 50))}})
+
+      ;; Materialize the value before passing to reset! (required for cross-database)
+      (reset! db2 (tu/materialize @db1))
+
+      ;; Verify data integrity
+      (is (= (tu/materialize @db1) (tu/materialize @db2)))
+
+      ;; Verify history works
+      (swap! db2 assoc :added "new")
+      (is (= (tu/materialize @db1) (tu/materialize (xdb/deref-at db2 0)))))))
 

@@ -46,12 +46,17 @@
         nil)))
   (.count history))
 
+(defn- write-value! [^WriteCursor cursor new-value]
+  (if (satisfies? common/ISlot new-value)
+    (.write cursor (common/-slot new-value))
+    (.write cursor (conversion/v->slot! cursor new-value))))
+
 (defn xitdb-reset!
   "Sets the value of the database to `new-value`.
   Returns new history index."
   [^WriteArrayList history new-value]
   (append-context! history nil (fn [^WriteCursor cursor]
-                                 (conversion/v->slot! cursor new-value))))
+                                 (write-value! cursor new-value))))
 
 (defn v->slot!
   "Converts a value to a slot which can be written to a cursor.
@@ -79,7 +84,7 @@
         (let [cursor (conversion/keypath-cursor cursor base-keypath)
               obj (xtypes/read-from-cursor cursor true)]
           (let [retval (apply f (into [obj] args))]
-            (.write cursor (v->slot! cursor retval))))))))
+            (write-value! cursor retval)))))))
 
 (defn xitdb-swap-with-lock!
   "Performs the 'swap!' operation while locking `db.lock`.
@@ -122,6 +127,13 @@
   [xdb]
   (.count (read-history (-> xdb .tldbro .get))))
 
+(defn deref-at
+  "Returns the version of the data at the specified index."
+  [xdb index]
+  (let [history (read-history (-> xdb .tldbro .get))
+        cursor  (.getCursor history index)]
+    (xtypes/read-from-cursor cursor false)))
+
 (deftype XITDBDatabase [tldbro rwdb lock]
 
   java.io.Closeable
@@ -131,9 +143,7 @@
 
   clojure.lang.IDeref
   (deref [this]
-    (let [history (read-history (.get tldbro))
-          cursor  (.getCursor history -1)]
-      (xtypes/read-from-cursor cursor false)))
+    (deref-at this -1))
 
   clojure.lang.IAtom
 
