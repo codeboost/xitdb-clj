@@ -35,21 +35,21 @@
         (clojure.lang.MapEntry. key v))))
 
   (assoc [this k v]
-    (throw (UnsupportedOperationException. "XITDBHashMap is read-only")))
+    (assoc (common/materialize this) k v))
 
   clojure.lang.IPersistentMap
-  (without [_ _]
-    (throw (UnsupportedOperationException. "XITDBHashMap is read-only")))
+  (without [this k]
+    (dissoc (common/materialize this) k))
 
   (count [this]
     (operations/map-item-count rhm))
 
   clojure.lang.IPersistentCollection
-  (cons [_ _]
-    (throw (UnsupportedOperationException. "XITDBHashMap is read-only")))
+  (cons [this o]
+    (cons o (common/materialize this)))
 
-  (empty [_]
-    (throw (UnsupportedOperationException. "XITDBHashMap is read-only")))
+  (empty [this]
+    {})
 
   (equiv [this other]
     (and (instance? clojure.lang.IPersistentMap other)
