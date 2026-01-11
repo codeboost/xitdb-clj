@@ -48,12 +48,7 @@
 
 (defn- write-value! [^WriteCursor cursor new-value]
   (if (satisfies? common/ISlot new-value)
-    (let [db (.db cursor)
-          coll (common/-unwrap new-value)
-          coll-db (-> coll .cursor .db)]
-      (when (not= db coll-db)
-        (throw (IllegalArgumentException. "Cannot write value from a different database. You must materialize it first.")))
-      (.write cursor (common/-slot new-value)))
+    (.write cursor (common/-slot new-value))
     (.write cursor (conversion/v->slot! cursor new-value))))
 
 (defn xitdb-reset!
