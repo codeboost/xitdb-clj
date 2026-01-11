@@ -111,7 +111,7 @@ Use `materialize` to convert a nested `XITDB` data structure to a native Clojure
 ## No query language
 
 Use `filter`, `group-by`, `reduce`, etc.
-If you want a query engine, `datascript` works out of the box, you can store the datoms as a vector in the db.
+If you want a query engine, [`datascript` works out of the box](https://gist.github.com/radarroark/663116fcd204f3f89a7e43f52fa676ef), you can store the datoms as a vector in the db.
 
 Here's a taste of how your queries could look like:
 ```clojure 
