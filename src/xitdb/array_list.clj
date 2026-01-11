@@ -18,11 +18,11 @@
   (count [_]
     (.count ral))
 
-  (cons [_ o]
-    (throw (UnsupportedOperationException. "XITDBArrayList is read-only")))
+  (cons [this o]
+    (cons o (common/materialize this)))
 
-  (empty [_]
-    (throw (UnsupportedOperationException. "XITDBArrayList is read-only")))
+  (empty [this]
+    [])
 
   (equiv [this other]
     (and (sequential? other)
@@ -33,7 +33,7 @@
 
   clojure.lang.IPersistentVector
   (assocN [this i val]
-    (throw (UnsupportedOperationException. "XITDBArrayList is read-only")))
+    (assoc (common/materialize this) i val))
 
   (length [this]
     (.count ral))

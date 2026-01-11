@@ -19,11 +19,11 @@
   (count [_]
     (.count rlal))
 
-  (cons [_ o]
-    (throw (UnsupportedOperationException. "XITDBLinkedArrayList is read-only")))
+  (cons [this o]
+    (cons o (common/materialize this)))
 
-  (empty [_]
-    (throw (UnsupportedOperationException. "XITDBLinkedArrayList is read-only")))
+  (empty [this]
+    '())
 
   (equiv [this other]
     (and (sequential? other)

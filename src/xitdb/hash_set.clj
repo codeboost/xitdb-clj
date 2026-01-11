@@ -15,8 +15,8 @@
 
 (deftype XITDBHashSet [^ReadHashSet rhs]
   clojure.lang.IPersistentSet
-  (disjoin [_ k]
-    (throw (UnsupportedOperationException. "XITDBHashSet is read-only")))
+  (disjoin [this k]
+    (disj (common/materialize this) k))
 
   (contains [this k]
     (operations/set-contains? rhs k))
@@ -26,11 +26,11 @@
       k))
 
   clojure.lang.IPersistentCollection
-  (cons [_ o]
-    (throw (UnsupportedOperationException. "XITDBHashSet is read-only")))
+  (cons [this o]
+    (cons o (common/materialize this)))
 
-  (empty [_]
-    (throw (UnsupportedOperationException. "XITDBHashSet is read-only")))
+  (empty [this]
+    #{})
 
   (equiv [this other]
     (and (instance? clojure.lang.IPersistentSet other)
