@@ -42,7 +42,6 @@
   {:keyword     "kw"
    :boolean     "bl"
    :key-integer "ki"
-   :nil         "nl"                                        ;; TODO: Could use Tag/NONE instead
    :inst        "in"
    :date        "da"
    :coll        "co"
@@ -120,7 +119,7 @@
     (Database$Float. v)
 
     (nil? v)
-    (database-bytes "" (fmt-tag-value :nil))
+    nil
 
     (instance? java.time.Instant v)
     (database-bytes (str v) (fmt-tag-value :inst))
@@ -312,9 +311,6 @@
       (= fmt-tag (fmt-tag-value :date))
       (java.util.Date/from
         (java.time.Instant/parse str))
-
-      (= fmt-tag (fmt-tag-value :nil))
-      nil
 
       :else
       str)))
