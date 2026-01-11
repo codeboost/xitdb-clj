@@ -52,7 +52,7 @@
           coll (common/-unwrap new-value)
           coll-db (-> coll .cursor .db)]
       (when (not= db coll-db)
-        (throw (IllegalArgumentException. "Cannot write value from a different database")))
+        (throw (IllegalArgumentException. "Cannot write value from a different database. You must materialize it first.")))
       (.write cursor (common/-slot new-value)))
     (.write cursor (conversion/v->slot! cursor new-value))))
 
