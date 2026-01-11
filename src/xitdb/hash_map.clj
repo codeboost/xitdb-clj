@@ -81,6 +81,10 @@
   (kv-reduce [this f init]
     (operations/map-kv-reduce rhm #(common/-read-from-cursor %) f init))
 
+  common/ISlot
+  (-slot [this]
+    (-> rhm .cursor .slot))
+
   common/IUnwrap
   (-unwrap [this]
     rhm)

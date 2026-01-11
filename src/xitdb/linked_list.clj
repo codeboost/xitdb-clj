@@ -86,6 +86,14 @@
         (aset result len nil))
       result))
 
+  common/ISlot
+  (-slot [this]
+    (-> rlal .cursor .slot))
+
+  common/IUnwrap
+  (-unwrap [_]
+    rlal)
+
   Object
   (toString [this]
     (pr-str (into [] this))))

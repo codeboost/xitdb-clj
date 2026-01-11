@@ -106,6 +106,10 @@
         (aset result len nil))
       result))
 
+  common/ISlot
+  (-slot [this]
+    (-> ral .cursor .slot))
+
   common/IUnwrap
   (-unwrap [this]
     ral)
