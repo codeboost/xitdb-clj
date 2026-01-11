@@ -46,14 +46,22 @@
         nil)))
   (.count history))
 
+(defn- write-value! [^WriteCursor cursor new-value]
+  (if (satisfies? common/ISlot new-value)
+    (let [db (.db cursor)
+          coll (common/-unwrap new-value)
+          coll-db (-> coll .cursor .db)]
+      (when (not= db coll-db)
+        (throw (IllegalArgumentException. "Cannot write value from a different database")))
+      (.write cursor (common/-slot new-value)))
+    (conversion/v->slot! cursor new-value)))
+
 (defn xitdb-reset!
   "Sets the value of the database to `new-value`.
   Returns new history index."
   [^WriteArrayList history new-value]
   (append-context! history nil (fn [^WriteCursor cursor]
-                                 (if (satisfies? common/ISlot new-value)
-                                   (.write cursor (common/-slot new-value))
-                                   (conversion/v->slot! cursor new-value)))))
+                                 (write-value! cursor new-value))))
 
 (defn v->slot!
   "Converts a value to a slot which can be written to a cursor.
@@ -81,7 +89,7 @@
         (let [cursor (conversion/keypath-cursor cursor base-keypath)
               obj (xtypes/read-from-cursor cursor true)]
           (let [retval (apply f (into [obj] args))]
-            (.write cursor (v->slot! cursor retval))))))))
+            (write-value! cursor retval)))))))
 
 (defn xitdb-swap-with-lock!
   "Performs the 'swap!' operation while locking `db.lock`.
