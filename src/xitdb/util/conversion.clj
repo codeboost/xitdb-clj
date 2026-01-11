@@ -227,7 +227,8 @@
         (let [v-cursor (.appendCursor write-array)]
           (set->WriteCursor! v-cursor v))
 
-        (validation/vector-or-chunked? v)
+        (or (validation/vector-or-chunked? v)
+            (instance? java.util.List v))
         (let [v-cursor (.appendCursor write-array)]
           (coll->ArrayListCursor! v-cursor v))
 

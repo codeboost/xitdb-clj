@@ -27,16 +27,16 @@
       (swap! db assoc :version 4)
 
       ;; Current state should be version 4
-      (is (= {:version 4} @db))
+      (is (= {:version 4} (tu/materialize @db)))
 
       ;; Access historical versions (0-indexed)
-      (is (= {:version 1} (xdb/deref-at db 0)))
-      (is (= {:version 2} (xdb/deref-at db 1)))
-      (is (= {:version 3} (xdb/deref-at db 2)))
-      (is (= {:version 4} (xdb/deref-at db 3)))
+      (is (= {:version 1} (tu/materialize (xdb/deref-at db 0))))
+      (is (= {:version 2} (tu/materialize (xdb/deref-at db 1))))
+      (is (= {:version 3} (tu/materialize (xdb/deref-at db 2))))
+      (is (= {:version 4} (tu/materialize (xdb/deref-at db 3))))
 
       ;; Using -1 should return the latest version
-      (is (= {:version 4} (xdb/deref-at db -1))))))
+      (is (= {:version 4} (tu/materialize (xdb/deref-at db -1)))))))
 
 (deftest deref-at-complex-data-test
   (testing "deref-at works with complex nested data"
@@ -47,7 +47,7 @@
       (swap! db assoc :metadata {:count 2})
 
       ;; Check historical versions
-      (is (= {:users []} (xdb/deref-at db 0)))
+      (is (= {:users []} (tu/materialize (xdb/deref-at db 0))))
       (is (= {:users [{:name "Alice"}]} (tu/materialize (xdb/deref-at db 1))))
       (is (= {:users [{:name "Alice"} {:name "Bob"}]}
              (tu/materialize (xdb/deref-at db 2))))
@@ -61,9 +61,9 @@
       (swap! db conj 2)
       (swap! db conj 3)
 
-      (is (= [1] (xdb/deref-at db 0)))
-      (is (= [1 2] (xdb/deref-at db 1)))
-      (is (= [1 2 3] (xdb/deref-at db 2))))))
+      (is (= [1] (tu/materialize (xdb/deref-at db 0))))
+      (is (= [1 2] (tu/materialize (xdb/deref-at db 1))))
+      (is (= [1 2 3] (tu/materialize (xdb/deref-at db 2)))))))
 
 (deftest history-index-test
   (testing "history-index returns the current transaction count"
@@ -407,15 +407,15 @@
       (is (nil? (get (xdb/deref-at db 2) :value)))
       (is (= 2 (get (xdb/deref-at db 3) :value))))))
 
-(deftest reset-preserves-slot-efficiency-test
-  (testing "reset! with ISlot values uses slot directly"
+(deftest reset-preserves-data-integrity-test
+  (testing "reset! with ISlot values from another database preserves data integrity"
     (with-open [db1 (xdb/xit-db :memory)
                 db2 (xdb/xit-db :memory)]
       ;; Create large nested data
       (reset! db1 {:data (vec (range 100))
                    :nested {:more (vec (range 50))}})
 
-      ;; Reset db2 with the value (should use slot efficiently)
+      ;; Reset db2 with the value (materializes for cross-database safety)
       (reset! db2 @db1)
 
       ;; Verify data integrity

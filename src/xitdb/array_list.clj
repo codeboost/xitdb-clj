@@ -31,6 +31,17 @@
 
   clojure.lang.Sequential  ;; Add this to mark as sequential
 
+  clojure.lang.Associative
+  (assoc [this k v]
+    (assoc (common/-materialize-shallow this) k v))
+
+  (containsKey [this k]
+    (and (integer? k) (>= k 0) (< k (.count ral))))
+
+  (entryAt [this k]
+    (when (.containsKey this k)
+      (clojure.lang.MapEntry. k (.valAt this k))))
+
   clojure.lang.IPersistentVector
   (assocN [this i val]
     (assoc (common/-materialize-shallow this) i val))
