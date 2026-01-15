@@ -29,7 +29,7 @@
          (= (count this) (count other))
          (every? identity (map = this other))))
 
-  clojure.lang.Sequential  ;; Add this to mark as sequential
+  clojure.lang.Sequential
 
   clojure.lang.Associative
   (assoc [this k v]
@@ -181,6 +181,8 @@
 
   (length [this]
     (.count wal))
+
+  clojure.lang.Sequential
 
   clojure.lang.Associative
   (assoc [this k v]
