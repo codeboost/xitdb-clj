@@ -241,11 +241,6 @@
   (-unwrap [this]
     wlal)
 
-  common/IMaterialize
-  (-materialize [this]
-    (reduce (fn [a v]
-              (conj a (common/materialize v))) [] (seq this)))
-
   common/IReadOnly
   (-read-only [this]
     (XITDBLinkedArrayList. wlal))

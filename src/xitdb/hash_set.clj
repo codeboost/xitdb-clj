@@ -144,10 +144,6 @@
   (-unwrap [_]
     whs)
 
-  common/IMaterialize
-  (-materialize [this]
-    (into #{} (map common/materialize (seq this))))
-
   common/IReadOnly
   (-read-only [this]
     (XITDBHashSet. whs))
