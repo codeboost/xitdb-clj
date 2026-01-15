@@ -154,6 +154,10 @@
   (toString [_]
     (str "XITDBWriteHashSet")))
 
+(defmethod print-method XITDBWriteHashSet [o ^java.io.Writer w]
+  (.write w "#XITDBWriteHashSet")
+  (print-method (into #{} (common/-read-only o)) w))
+
 ;; Constructor functions
 (defn xwrite-hash-set [^WriteCursor write-cursor]
   (->XITDBWriteHashSet (WriteHashSet. write-cursor)))
