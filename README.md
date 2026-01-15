@@ -59,27 +59,6 @@ For the programmer, a `xitdb` database is like a Clojure atom.
 (get-in @db [:users "alice" :age])
 ;; => 31
 ```
-One important distinction from the Clojure atom is that inside a transaction (eg. a `swap!`), 
-'change' operations on the received `db` argument are mutating the underlying data structure.
-
-```clojure
-(with-db [db (xdb/xit-db :memory)]
-  (reset! db {})
-  (swap! db (fn [db]
-              (let [db1 (assoc db :foo :bar)]
-                (println "db1:" db1)
-                (println "db:" db)))))
-```
-prints 
-```
-db1: {:foo :bar}
-db: {:foo :bar}
-```
-As you can see, `(assoc db :foo :bar)` changed the value of `db`, in contrast
-to how it works with a Clojure persistent map. This is because, inside `swap!`, 
-`db` is referencing a WriteCursor, which writes the value to the underlying 
-ArrayList or HashMap objects inside `xit-db-java`.
-The value will actually be commited to the database when the `swap!` function returns.
 
 ## Data structures are read lazily from the database
 
@@ -153,6 +132,42 @@ values of the database, by setting the `*return-history?*` binding to `true`.
     (println "old value:" old-value)
     (println "new value:" new-value)))
 ```
+
+## Freezing
+
+One important distinction from the Clojure atom is that inside a transaction (eg. a `swap!`), the data is temporarily mutable. This is exactly like Clojure's transients, and it is a very important optimization. However, this can lead to a surprising behavior:
+
+```clojure
+(swap! db (fn [moment]
+            (let [moment (assoc moment :fruits ["apple" "pear" "grape"])
+                  moment (assoc moment :food (:fruits moment))
+                  moment (update moment :food conj "eggs" "rice" "fish")]
+              moment)))
+
+;; =>
+
+{:fruits ["apple" "pear" "grape" "eggs" "rice" "fish"]
+ :food ["apple" "pear" "grape" "eggs" "rice" "fish"]}
+
+;; the fruits vector was mutated!
+```
+
+If you want to prevent data from being mutated within a transaction, you must `freeze` it:
+
+```clojure
+(swap! db (fn [moment]
+            (let [moment (assoc moment :fruits ["apple" "pear" "grape"])
+                  moment (assoc moment :food (xdb/freeze (:fruits moment)))
+                  moment (update moment :food conj "eggs" "rice" "fish")]
+              moment)))
+
+;; =>
+
+{:fruits ["apple" "pear" "grape"]
+ :food ["apple" "pear" "grape" "eggs" "rice" "fish"]}
+```
+
+Note that this is not doing an expensive copy of the fruits vector. We are benefitting from structural sharing, just like in-memory Clojure data. The reason we have to `freeze` is because the default is different than Clojure; in Clojure, you must opt-in to temporary mutability by using transients, whereas in xitdb you must opt-out of it.
 
 ### Architecture
 `xitdb-clj` builds on [xitdb-java](https://github.com/radarroark/xitdb-java) which implements:
