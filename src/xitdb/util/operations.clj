@@ -62,6 +62,24 @@
     (.write cursor (conversion/v->slot! cursor v))
     wlal))
 
+(defn ^WriteLinkedArrayList linked-array-list-assoc-value!
+  "Associates a value at index i in a WriteLinkedArrayList.
+  Appends the value if the index equals the current count.
+  Replaces the value at the specified index otherwise.
+  Throws an IllegalArgumentException if the index is out of bounds."
+  [^WriteLinkedArrayList wlal i v]
+
+  (assert (= Tag/LINKED_ARRAY_LIST (-> wlal .cursor .slot .tag)))
+  (assert (number? i))
+
+  (validation/validate-index-bounds i (.count wlal) "Array list assoc")
+
+  (let [cursor (if (= i (.count wlal))
+                 (.appendCursor wlal)
+                 (.putCursor wlal i))]
+    (.write cursor (conversion/v->slot! cursor v)))
+  wlal)
+
 (defn linked-array-list-insert-value!
   "Inserts a value at position pos in a WriteLinkedArrayList.
   Converts the value to an appropriate XitDB representation using v->slot!."

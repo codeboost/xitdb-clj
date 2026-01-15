@@ -43,6 +43,13 @@
         (common/-read-from-cursor cursor)
         not-found)))
 
+  clojure.lang.IPersistentVector
+  (assocN [this i val]
+    (assoc (common/-materialize-shallow this) i val))
+
+  (length [this]
+    (.count rlal))
+
   clojure.lang.ILookup
   (valAt [this k]
     (if (number? k)
@@ -122,7 +129,6 @@
     (.count wlal))
 
   (cons [this o]
-    ;; TODO: This should insert at position 0
     (operations/linked-array-list-insert-value! wlal 0 (common/unwrap o))
     this)
 
@@ -147,6 +153,21 @@
     (if (and (>= i 0) (< i (.count wlal)))
       (common/-read-from-cursor (.putCursor wlal i))
       not-found))
+
+  clojure.lang.IPersistentVector
+  (assocN [this i val]
+    (operations/linked-array-list-assoc-value! wlal i (common/unwrap val))
+    this)
+
+  (length [this]
+    (.count wlal))
+
+  clojure.lang.Associative
+  (assoc [this k v]
+    (when-not (integer? k)
+      (throw (IllegalArgumentException. "Key must be integer")))
+    (operations/linked-array-list-assoc-value! wlal k (common/unwrap v))
+    this)
 
   clojure.lang.ILookup
   (valAt [this k]
