@@ -146,6 +146,10 @@
   (-unwrap [_]
     whs)
 
+  common/IReadOnly
+  (-read-only [this]
+    (XITDBHashSet. whs))
+
   Object
   (toString [_]
     (str "XITDBWriteHashSet")))
