@@ -92,7 +92,7 @@
               :food {:names ["apple" "pear" "grape" "eggs" "rice" "fish"]}}
              (xdb/materialize @db))))))
 
-(deftest freeze-hash-map-test
+(deftest freeze-hash-set-test
   (testing "without freeze"
     (with-open [db (xdb/xit-db :memory)]
       (reset! db {})
