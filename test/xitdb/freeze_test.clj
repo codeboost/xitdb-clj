@@ -1,5 +1,5 @@
 (ns xitdb.freeze-test
-  "Tests for the `freeze` function"
+  "Tests for the `freeze!` function"
   (:require
     [clojure.test :refer :all]
     [xitdb.db :as xdb]
@@ -26,7 +26,7 @@
 
       (swap! db (fn [moment]
                   (let [moment (assoc moment :fruits ["apple" "pear" "grape"])
-                        moment (assoc moment :food (xdb/freeze (:fruits moment)))
+                        moment (assoc moment :food (xdb/freeze! (:fruits moment)))
                         moment (update moment :food conj "eggs" "rice" "fish")]
                     moment)))
 
@@ -55,7 +55,7 @@
 
       (swap! db (fn [moment]
                   (let [moment (assoc moment :fruits '("apple" "pear" "grape"))
-                        moment (assoc moment :food (xdb/freeze (:fruits moment)))
+                        moment (assoc moment :food (xdb/freeze! (:fruits moment)))
                         moment (update moment :food conj "eggs" "rice" "fish")]
                     moment)))
 
@@ -84,7 +84,7 @@
 
       (swap! db (fn [moment]
                   (let [moment (assoc moment :fruits {:names ["apple" "pear" "grape"]})
-                        moment (assoc moment :food (xdb/freeze (:fruits moment)))
+                        moment (assoc moment :food (xdb/freeze! (:fruits moment)))
                         moment (update-in moment [:food :names] conj "eggs" "rice" "fish")]
                     moment)))
 
@@ -113,7 +113,7 @@
 
       (swap! db (fn [moment]
                   (let [moment (assoc moment :fruits #{"apple" "pear" "grape"})
-                        moment (assoc moment :food (xdb/freeze (:fruits moment)))
+                        moment (assoc moment :food (xdb/freeze! (:fruits moment)))
                         moment (update moment :food conj "eggs" "rice" "fish")]
                     moment)))
 
