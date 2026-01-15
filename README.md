@@ -152,12 +152,12 @@ One important distinction from the Clojure atom is that inside a transaction (eg
 ;; the fruits vector was mutated!
 ```
 
-If you want to prevent data from being mutated within a transaction, you must `freeze` it:
+If you want to prevent data from being mutated within a transaction, you must `freeze!` it:
 
 ```clojure
 (swap! db (fn [moment]
             (let [moment (assoc moment :fruits ["apple" "pear" "grape"])
-                  moment (assoc moment :food (xdb/freeze (:fruits moment)))
+                  moment (assoc moment :food (xdb/freeze! (:fruits moment)))
                   moment (update moment :food conj "eggs" "rice" "fish")]
               moment)))
 
@@ -167,7 +167,7 @@ If you want to prevent data from being mutated within a transaction, you must `f
  :food ["apple" "pear" "grape" "eggs" "rice" "fish"]}
 ```
 
-Note that this is not doing an expensive copy of the fruits vector. We are benefitting from structural sharing, just like in-memory Clojure data. The reason we have to `freeze` is because the default is different than Clojure; in Clojure, you must opt-in to temporary mutability by using transients, whereas in xitdb you must opt-out of it.
+Note that this is not doing an expensive copy of the fruits vector. We are benefitting from structural sharing, just like in-memory Clojure data. The reason we have to `freeze!` is because the default is different than Clojure; in Clojure, you must opt-in to temporary mutability by using transients, whereas in xitdb you must opt-out of it.
 
 ### Architecture
 `xitdb-clj` builds on [xitdb-java](https://github.com/radarroark/xitdb-java) which implements:
