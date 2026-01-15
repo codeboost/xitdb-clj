@@ -122,10 +122,7 @@
   [^Database db]
   (ReadArrayList. (-> db .rootCursor)))
 
-(defn history-index
-  "Returns the current size of the transaction history array."
-  [xdb]
-  (.count (read-history (-> xdb .tldbro .get))))
+(def ^:deprecated history-index count)
 
 (defn deref-at
   "Returns the version of the data at the specified index."
@@ -144,6 +141,10 @@
   clojure.lang.IDeref
   (deref [this]
     (deref-at this -1))
+
+  clojure.lang.Counted
+  (count [this]
+    (.count (read-history (.get tldbro))))
 
   clojure.lang.IAtom
 

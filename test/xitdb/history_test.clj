@@ -1,7 +1,7 @@
 (ns xitdb.history-test
   "Tests for database history and versioning features:
    - deref-at: access historical versions
-   - history-index: get current transaction count"
+   - count: get current transaction count"
   (:require
     [clojure.test :refer :all]
     [xitdb.db :as xdb]
@@ -55,17 +55,17 @@
       (is (= [1 2] (tu/materialize (xdb/deref-at db 1))))
       (is (= [1 2 3] (tu/materialize (xdb/deref-at db 2)))))))
 
-(deftest history-index-test
-  (testing "history-index returns the current transaction count"
+(deftest count-test
+  (testing "count returns the current transaction count"
     (with-open [db (xdb/xit-db :memory)]
       (reset! db {:a 1})
-      (is (= 1 (xdb/history-index db)))
+      (is (= 1 (count db)))
 
       (swap! db assoc :b 2)
-      (is (= 2 (xdb/history-index db)))
+      (is (= 2 (count db)))
 
       (swap! db assoc :c 3)
-      (is (= 3 (xdb/history-index db))))))
+      (is (= 3 (count db))))))
 
 (deftest deref-at-with-nil-values-test
   (testing "deref-at works correctly with nil values in history"
