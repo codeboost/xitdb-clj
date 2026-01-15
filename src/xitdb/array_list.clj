@@ -125,6 +125,16 @@
   (-unwrap [this]
     ral)
 
+  common/IMaterialize
+  (-materialize [this]
+    (reduce (fn [a v]
+              (conj a (common/materialize v))) [] (seq this)))
+
+  common/IMaterializeShallow
+  (-materialize-shallow [this]
+    (reduce (fn [a v]
+              (conj a v)) [] (seq this)))
+
   Object
   (toString [this]
     (pr-str (into [] this))))
@@ -132,18 +142,6 @@
 (defmethod print-method XITDBArrayList [o ^java.io.Writer w]
   (.write w "#XITDBArrayList")
   (print-method (into [] o) w))
-
-(extend-protocol common/IMaterialize
-  XITDBArrayList
-  (-materialize [this]
-    (reduce (fn [a v]
-              (conj a (common/materialize v))) [] (seq this))))
-
-(extend-protocol common/IMaterializeShallow
-  XITDBArrayList
-  (-materialize-shallow [this]
-    (reduce (fn [a v]
-              (conj a v)) [] (seq this))))
 
 ;;-----------------------------------------------
 
@@ -247,6 +245,11 @@
   common/IUnwrap
   (-unwrap [this]
     wal)
+
+  common/IMaterialize
+  (-materialize [this]
+    (reduce (fn [a v]
+              (conj a (common/materialize v))) [] (seq this)))
 
   common/IReadOnly
   (-read-only [this]
