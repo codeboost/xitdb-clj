@@ -30,7 +30,25 @@
          (= (count this) (count other))
          (every? identity (map = this other))))
 
-  clojure.lang.Sequential  ;; Mark as sequential
+  clojure.lang.Sequential  ;; Add this to mark as sequential
+
+  clojure.lang.Associative
+  (assoc [this k v]
+    (assoc (common/-materialize-shallow this) k v))
+
+  (containsKey [this k]
+    (and (integer? k) (>= k 0) (< k (.count rlal))))
+
+  (entryAt [this k]
+    (when (.containsKey this k)
+      (clojure.lang.MapEntry. k (.valAt this k))))
+
+  clojure.lang.IPersistentVector
+  (assocN [this i val]
+    (assoc (common/-materialize-shallow this) i val))
+
+  (length [this]
+    (.count rlal))
 
   clojure.lang.Indexed
   (nth [_ i]
@@ -42,13 +60,6 @@
       (if cursor
         (common/-read-from-cursor cursor)
         not-found)))
-
-  clojure.lang.IPersistentVector
-  (assocN [this i val]
-    (assoc (common/-materialize-shallow this) i val))
-
-  (length [this]
-    (.count rlal))
 
   clojure.lang.ILookup
   (valAt [this k]
@@ -145,6 +156,14 @@
                    (range (count this))))
       false))
 
+  clojure.lang.IPersistentVector
+  (assocN [this i val]
+    (operations/linked-array-list-assoc-value! wlal i (common/unwrap val))
+    this)
+
+  (length [this]
+    (.count wlal))
+
   clojure.lang.Indexed
   (nth [this i]
     (.nth this i nil))
@@ -154,20 +173,19 @@
       (common/-read-from-cursor (.putCursor wlal i))
       not-found))
 
-  clojure.lang.IPersistentVector
-  (assocN [this i val]
-    (operations/linked-array-list-assoc-value! wlal i (common/unwrap val))
-    this)
-
-  (length [this]
-    (.count wlal))
-
   clojure.lang.Associative
   (assoc [this k v]
     (when-not (integer? k)
       (throw (IllegalArgumentException. "Key must be integer")))
     (operations/linked-array-list-assoc-value! wlal k (common/unwrap v))
     this)
+
+  (containsKey [this k]
+    (and (integer? k) (>= k 0) (< k (.count wlal))))
+
+  (entryAt [this k]
+    (when (.containsKey this k)
+      (clojure.lang.MapEntry. k (.valAt this k))))
 
   clojure.lang.ILookup
   (valAt [this k]
@@ -236,11 +254,10 @@
   (print-method (into [] (common/-read-only o)) w))
 
 (extend-protocol common/IMaterialize
-  XITDBLinkedArrayList
+  XITDBWriteLinkedArrayList
   (-materialize [this]
-    (apply list
-      (reduce (fn [a v]
-                (conj a (common/materialize v))) [] (seq this)))))
+    (reduce (fn [a v]
+              (conj a (common/materialize v))) [] (seq this))))
 
 ;; Constructors
 
