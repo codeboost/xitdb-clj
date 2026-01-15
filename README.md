@@ -130,7 +130,8 @@ Here's a taste of how your queries could look like:
 ```
 
 ## History
-Since the database is immutable, all previous values are accessing by reading
+
+Since the database is immutable, all previous values are accessed by reading
 from the respective `history index`.
 The root data structure of a xitdb database is a ArrayList, called 'history'.
 Each transaction adds a new entry into this array, which points to the latest value 
@@ -141,6 +142,18 @@ of the database (usually a map).
 (xdb/deref-at db -2) ;; the second most recent value
 (xdb/deref-at db 0)  ;; the earliest value
 (xdb/deref-at db 1)  ;; the second value
+```
+
+You can get the latest history index from the `count` of the database:
+
+```clojure
+(def history-index (dec (count db)))
+```
+
+After making further transactions, you can revert back to it simply like this:
+
+```clojure
+(reset! db (xdb/deref-at db history-index))
 ```
 
 It is also possible to create a transaction which returns the previous and current 
