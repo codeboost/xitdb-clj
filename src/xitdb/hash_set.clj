@@ -76,6 +76,14 @@
   (-unwrap [_]
     rhs)
 
+  common/IMaterialize
+  (-materialize [this]
+    (into #{} (map common/materialize (seq this))))
+
+  common/IMaterializeShallow
+  (-materialize-shallow [this]
+    (into #{} (seq this)))
+
   Object
   (toString [this]
     (str (into #{} this))))
@@ -83,16 +91,6 @@
 (defmethod print-method XITDBHashSet [o ^java.io.Writer w]
   (.write w "#XITDBHashSet")
   (print-method (into #{} o) w))
-
-(extend-protocol common/IMaterialize
-  XITDBHashSet
-  (-materialize [this]
-    (into #{} (map common/materialize (seq this)))))
-
-(extend-protocol common/IMaterializeShallow
-  XITDBHashSet
-  (-materialize-shallow [this]
-    (into #{} (seq this))))
 
 ;; Writable version of the set
 (deftype XITDBWriteHashSet [^WriteHashSet whs]
@@ -145,6 +143,10 @@
   common/IUnwrap
   (-unwrap [_]
     whs)
+
+  common/IMaterialize
+  (-materialize [this]
+    (into #{} (map common/materialize (seq this))))
 
   common/IReadOnly
   (-read-only [this]

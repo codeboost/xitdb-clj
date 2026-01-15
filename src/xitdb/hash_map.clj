@@ -89,6 +89,16 @@
   (-unwrap [this]
     rhm)
 
+  common/IMaterialize
+  (-materialize [this]
+    (reduce (fn [m [k v]]
+              (assoc m k (common/materialize v))) {} (seq this)))
+
+  common/IMaterializeShallow
+  (-materialize-shallow [this]
+    (reduce (fn [m [k v]]
+              (assoc m k v)) {} (seq this)))
+
   Object
   (toString [this]
     (str (into {} this))))
@@ -96,18 +106,6 @@
 (defmethod print-method XITDBHashMap [o ^java.io.Writer w]
   (.write w "#XITDBHashMap")
   (print-method (into {} o) w))
-
-(extend-protocol common/IMaterialize
-  XITDBHashMap
-  (-materialize [this]
-    (reduce (fn [m [k v]]
-              (assoc m k (common/materialize v))) {} (seq this))))
-
-(extend-protocol common/IMaterializeShallow
-  XITDBHashMap
-  (-materialize-shallow [this]
-    (reduce (fn [m [k v]]
-              (assoc m k v)) {} (seq this))))
 
 ;---------------------------------------------------
 
@@ -185,6 +183,11 @@
   common/IUnwrap
   (-unwrap [this]
     whm)
+
+  common/IMaterialize
+  (-materialize [this]
+    (reduce (fn [m [k v]]
+              (assoc m k (common/materialize v))) {} (seq this)))
 
   common/IReadOnly
   (-read-only [this]

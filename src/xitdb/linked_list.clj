@@ -112,6 +112,16 @@
   (-unwrap [_]
     rlal)
 
+  common/IMaterialize
+  (-materialize [this]
+    (reduce (fn [a v]
+              (conj a (common/materialize v))) [] (seq this)))
+
+  common/IMaterializeShallow
+  (-materialize-shallow [this]
+    (reduce (fn [a v]
+              (conj a v)) [] (seq this)))
+
   Object
   (toString [this]
     (pr-str (into [] this))))
@@ -119,18 +129,6 @@
 (defmethod print-method XITDBLinkedArrayList [o ^java.io.Writer w]
   (.write w "#XITDBLinkedArrayList")
   (print-method (into [] o) w))
-
-(extend-protocol common/IMaterialize
-  XITDBLinkedArrayList
-  (-materialize [this]
-    (reduce (fn [a v]
-              (conj a (common/materialize v))) [] (seq this))))
-
-(extend-protocol common/IMaterializeShallow
-  XITDBLinkedArrayList
-  (-materialize-shallow [this]
-    (reduce (fn [a v]
-              (conj a v)) [] (seq this))))
 
 ;; -----------------------------------------------------------------
 
@@ -241,6 +239,11 @@
   (-unwrap [this]
     wlal)
 
+  common/IMaterialize
+  (-materialize [this]
+    (reduce (fn [a v]
+              (conj a (common/materialize v))) [] (seq this)))
+
   common/IReadOnly
   (-read-only [this]
     (XITDBLinkedArrayList. wlal))
@@ -252,12 +255,6 @@
 (defmethod print-method XITDBWriteLinkedArrayList [o ^java.io.Writer w]
   (.write w "#XITDBWriteLinkedArrayList")
   (print-method (into [] (common/-read-only o)) w))
-
-(extend-protocol common/IMaterialize
-  XITDBWriteLinkedArrayList
-  (-materialize [this]
-    (reduce (fn [a v]
-              (conj a (common/materialize v))) [] (seq this))))
 
 ;; Constructors
 
