@@ -231,4 +231,12 @@
     :else
     (throw (IllegalArgumentException. (str "xdb must be an instance of XITDBCursor or XITDBDatabase, got: " (type xdb))))))
 
+(defn freeze
+  "Prevents all data written in the current transaction from
+  being mutated by any remaining changes. Throws if called
+  outside of a transaction. Returns a read-only version of the
+  given writeable data structure."
+  [x]
+  (-> x common/-unwrap .cursor .db .freeze)
+  (common/-read-only x))
 

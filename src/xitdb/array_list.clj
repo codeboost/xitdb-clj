@@ -248,6 +248,10 @@
   (-unwrap [this]
     wal)
 
+  common/IReadOnly
+  (-read-only [this]
+    (XITDBArrayList. wal))
+
   Object
   (toString [this]
     (str "XITDBWriteArrayList")))

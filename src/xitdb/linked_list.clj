@@ -202,6 +202,10 @@
   (-unwrap [this]
     wlal)
 
+  common/IReadOnly
+  (-read-only [this]
+    (XITDBLinkedArrayList. wlal))
+
   Object
   (toString [this]
     (str "XITDBWriteLinkedArrayList")))

@@ -186,6 +186,10 @@
   (-unwrap [this]
     whm)
 
+  common/IReadOnly
+  (-read-only [this]
+    (XITDBHashMap. whm))
+
   Object
   (toString [this]
     (str "XITDBWriteHashMap")))
