@@ -19,7 +19,7 @@
     (.count ral))
 
   (cons [this o]
-    (cons o (common/-materialize-shallow this)))
+    (. clojure.lang.RT (conj (common/-materialize-shallow this) o)))
 
   (empty [this]
     [])
