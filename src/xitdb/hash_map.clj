@@ -184,11 +184,6 @@
   (-unwrap [this]
     whm)
 
-  common/IMaterialize
-  (-materialize [this]
-    (reduce (fn [m [k v]]
-              (assoc m k (common/materialize v))) {} (seq this)))
-
   common/IReadOnly
   (-read-only [this]
     (XITDBHashMap. whm))
