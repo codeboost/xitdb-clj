@@ -256,6 +256,10 @@
   (toString [this]
     (str "XITDBWriteArrayList")))
 
+(defmethod print-method XITDBWriteArrayList [o ^java.io.Writer w]
+  (.write w "#XITDBWriteArrayList")
+  (print-method (into [] (common/-read-only o)) w))
+
 ;; Constructors
 
 (defn xwrite-array-list [^WriteCursor write-cursor]

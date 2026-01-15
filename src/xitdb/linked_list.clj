@@ -231,6 +231,10 @@
   (toString [this]
     (str "XITDBWriteLinkedArrayList")))
 
+(defmethod print-method XITDBWriteLinkedArrayList [o ^java.io.Writer w]
+  (.write w "#XITDBWriteLinkedArrayList")
+  (print-method (into [] (common/-read-only o)) w))
+
 (extend-protocol common/IMaterialize
   XITDBLinkedArrayList
   (-materialize [this]

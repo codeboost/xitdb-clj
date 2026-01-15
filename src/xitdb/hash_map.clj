@@ -194,6 +194,9 @@
   (toString [this]
     (str "XITDBWriteHashMap")))
 
+(defmethod print-method XITDBWriteHashMap [o ^java.io.Writer w]
+  (.write w "#XITDBWriteHashMap")
+  (print-method (into {} (common/-read-only o)) w))
 
 (defn xwrite-hash-map [^WriteCursor write-cursor]
   (->XITDBWriteHashMap (WriteHashMap. write-cursor)))
