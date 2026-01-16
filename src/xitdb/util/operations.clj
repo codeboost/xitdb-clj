@@ -84,8 +84,15 @@
   "Inserts a value at position pos in a WriteLinkedArrayList.
   Converts the value to an appropriate XitDB representation using v->slot!."
   [^WriteLinkedArrayList wlal pos v]
+  (let [cursor (.insertCursor wlal pos)]
+    (.write cursor (conversion/v->slot! cursor v)))
+  wlal)
+
+(defn linked-array-list-remove-value!
+  "Removes a value at position pos in a WriteLinkedArrayList."
+  [^WriteLinkedArrayList wlal pos]
   (let [cursor (-> wlal .cursor)]
-    (.insert wlal pos (conversion/v->slot! cursor v)))
+    (.remove wlal pos))
   wlal)
 
 (defn linked-array-list-pop!

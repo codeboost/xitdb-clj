@@ -50,6 +50,10 @@
   (length [this]
     (.count rlal))
 
+  clojure.lang.IPersistentMap
+  (without [this k]
+    (dissoc (common/-materialize-shallow this) k))
+
   clojure.lang.Indexed
   (nth [_ i]
     (let [cursor (.getCursor rlal (long i))]
@@ -186,6 +190,11 @@
   (entryAt [this k]
     (when (.containsKey this k)
       (clojure.lang.MapEntry. k (.valAt this k))))
+
+  clojure.lang.IPersistentMap
+  (without [this key]
+    (operations/linked-array-list-remove-value! wlal key)
+    this)
 
   clojure.lang.ILookup
   (valAt [this k]
