@@ -32,17 +32,6 @@
 
   clojure.lang.Sequential
 
-  clojure.lang.Associative
-  (assoc [this k v]
-    (assoc (vec (common/-materialize-shallow this)) k v))
-
-  (containsKey [this k]
-    (and (integer? k) (>= k 0) (< k (.count rlal))))
-
-  (entryAt [this k]
-    (when (.containsKey this k)
-      (clojure.lang.MapEntry. k (.valAt this k))))
-
   clojure.lang.Indexed
   (nth [_ i]
     (let [cursor (.getCursor rlal (long i))]
