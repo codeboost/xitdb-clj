@@ -1,0 +1,9 @@
+{:paths ["src"]
+ :deps {;; Use local xitdb-clj for development
+        io.github.codeboost/xitdb-clj {:local/root "../.."}
+        org.clojure/clojure {:mvn/version "1.12.0"}}
+
+ ;; Alternative: use released version from Clojars
+ ;; :deps {io.github.codeboost/xitdb-clj {:mvn/version "RELEASE"}
+ ;;        org.clojure/clojure {:mvn/version "1.12.0"}}
+ }
