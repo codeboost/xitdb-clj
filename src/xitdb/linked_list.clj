@@ -20,7 +20,7 @@
     (.count rlal))
 
   (cons [this o]
-    (vec (. clojure.lang.RT (conj (common/-materialize-shallow this) o))))
+    (. clojure.lang.RT (conj (common/-materialize-shallow this) o)))
 
   (empty [this]
     '())
@@ -42,13 +42,6 @@
   (entryAt [this k]
     (when (.containsKey this k)
       (clojure.lang.MapEntry. k (.valAt this k))))
-
-  clojure.lang.IPersistentVector
-  (assocN [this i val]
-    (assoc (vec (common/-materialize-shallow this)) i val))
-
-  (length [this]
-    (.count rlal))
 
   clojure.lang.Indexed
   (nth [_ i]
