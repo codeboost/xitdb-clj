@@ -29,6 +29,10 @@
         (swap! db dissoc 0)
         (is (= '(1 2 3 4 5) @db)))
 
+      (testing "Adding to read-only list"
+        (is (= [7 1 2 3 4 5]
+               (conj @db 7))))
+
       (testing "Emptying"
         (swap! db empty)
         (is (= '() @db))
