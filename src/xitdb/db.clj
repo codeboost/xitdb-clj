@@ -237,7 +237,7 @@
   outside of a transaction. Returns a read-only version of the
   given writeable data structure."
   [x]
-  (when-not (satisfies? common/IUnwrap x)
+  (when-not (satisfies? common/IReadOnly x)
     (throw (IllegalArgumentException.
             (str "freeze! requires a writeable XITDB data structure, got: " (type x)))))
   (-> x common/-unwrap .cursor .db .freeze)
