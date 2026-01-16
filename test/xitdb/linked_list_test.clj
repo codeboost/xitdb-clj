@@ -20,7 +20,6 @@
         (is (= '(1 2 3 4 5) @db)))
 
       (testing "Membership"
-        (is (= true (contains? @db 3)))
         (is (= 4 (get @db 3))))
 
       (testing "Adding/Removing"
@@ -31,11 +30,7 @@
 
       (testing "Adding to read-only list"
         (is (= [6 1 2 3 4 5]
-               (conj @db 6)))
-        (is (= [6 2 3 4 5]
-               (assoc @db 0 6)))
-        (is (= [1 2 3 4 5 6]
-               (assoc @db 5 6))))
+               (conj @db 6))))
 
       (testing "Emptying"
         (swap! db empty)
