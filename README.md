@@ -33,7 +33,7 @@ It is a Clojure interface for [xitdb-java](https://github.com/radarroark/xitdb-j
 - All heavy lifting done by the bare-to-the-jvm java library.
 - Database files can be used from other languages, via [xitdb Java library](https://github.com/radarroark/xitdb-java) or the [xitdb Zig library](https://github.com/radarroark/xitdb)
 
-## Quickstart
+## Quick Start
 
 Add the dependency to your project, start a REPL.
 
@@ -84,7 +84,7 @@ using Clojure functions.
 Use `materialize` to convert a nested `XITDB` data structure to a native Clojure data structure:
 
 ```clojure
-(materialize (get-in @db [:users "alice"])) ;; => {:name "Alice" :age 31}
+(xdb/materialize (get-in @db [:users "alice"])) ;; => {:name "Alice" :age 31}
 ```
 
 ## No query language
