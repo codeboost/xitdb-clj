@@ -20,7 +20,7 @@
     (.count rlal))
 
   (cons [this o]
-    (. clojure.lang.RT (conj (common/-materialize-shallow this) o)))
+    (vec (. clojure.lang.RT (conj (common/-materialize-shallow this) o))))
 
   (empty [this]
     '())
@@ -34,7 +34,7 @@
 
   clojure.lang.Associative
   (assoc [this k v]
-    (assoc (common/-materialize-shallow this) k v))
+    (assoc (vec (common/-materialize-shallow this)) k v))
 
   (containsKey [this k]
     (and (integer? k) (>= k 0) (< k (.count rlal))))
@@ -45,14 +45,10 @@
 
   clojure.lang.IPersistentVector
   (assocN [this i val]
-    (assoc (common/-materialize-shallow this) i val))
+    (assoc (vec (common/-materialize-shallow this)) i val))
 
   (length [this]
     (.count rlal))
-
-  clojure.lang.IPersistentMap
-  (without [this k]
-    (dissoc (common/-materialize-shallow this) k))
 
   clojure.lang.Indexed
   (nth [_ i]
@@ -118,13 +114,15 @@
 
   common/IMaterialize
   (-materialize [this]
-    (reduce (fn [a v]
-              (conj a (common/materialize v))) [] (seq this)))
+    (apply list
+      (reduce (fn [a v]
+                (conj a (common/materialize v))) [] (seq this))))
 
   common/IMaterializeShallow
   (-materialize-shallow [this]
-    (reduce (fn [a v]
-              (conj a v)) [] (seq this)))
+    (apply list
+      (reduce (fn [a v]
+                (conj a v)) [] (seq this))))
 
   Object
   (toString [this]

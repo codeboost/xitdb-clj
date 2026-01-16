@@ -132,8 +132,8 @@
 
       (let [db-val @db
             shallow (common/-materialize-shallow db-val)]
-        ;; Should be a vector (shallow materialization converts to vector)
-        (is (vector? shallow))
+        ;; Should be a list
+        (is (list? shallow))
 
         ;; Values are preserved
         (is (= [1 2 3] shallow))))))
