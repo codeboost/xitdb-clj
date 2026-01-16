@@ -91,8 +91,7 @@
 (defn linked-array-list-remove-value!
   "Removes a value at position pos in a WriteLinkedArrayList."
   [^WriteLinkedArrayList wlal pos]
-  (let [cursor (-> wlal .cursor)]
-    (.remove wlal pos))
+  (.remove wlal pos)
   wlal)
 
 (defn linked-array-list-pop!

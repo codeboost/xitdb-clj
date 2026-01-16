@@ -7,8 +7,8 @@
     [io.github.radarroark.xitdb ReadCursor ReadLinkedArrayList WriteCursor WriteLinkedArrayList]))
 
 (defn array-seq
-  [^ReadLinkedArrayList rlal]
   "The cursors used must implement the IReadFromCursor protocol."
+  [^ReadLinkedArrayList rlal]
   (operations/linked-array-seq rlal #(common/-read-from-cursor %)))
 
 (deftype XITDBLinkedArrayList [^ReadLinkedArrayList rlal]
