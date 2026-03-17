@@ -17,7 +17,7 @@
 `xitdb-clj` is a embedded database for efficiently storing and retrieving immutable, persistent data structures.
 The library provides atom-like semantics for working with the database from Clojure.
 
-It is a Clojure interface for [xitdb-java](https://github.com/radarroark/xitdb-java), itself a port of [xitdb](https://github.com/radarroark/xitdb), written in Zig.
+It is a Clojure interface for [xitdb-java](https://github.com/xit-vcs/xitdb-java), itself a port of [xitdb](https://github.com/xit-vcs/xitdb), written in Zig.
 
 
 [![Clojars Project](https://img.shields.io/clojars/v/io.github.codeboost/xitdb-clj.svg)](https://clojars.org/io.github.codeboost/xitdb-clj)
@@ -31,7 +31,7 @@ It is a Clojure interface for [xitdb-java](https://github.com/radarroark/xitdb-j
 - Thread safe. Multiple readers, one writer.
 - Append-only. The data you are writing is invisible to any reader until the very last step, when the top-level history header is updated.
 - All heavy lifting done by the bare-to-the-jvm java library.
-- Database files can be used from other languages, via [xitdb Java library](https://github.com/radarroark/xitdb-java) or the [xitdb Zig library](https://github.com/radarroark/xitdb)
+- Database files can be used from other languages, via [xitdb Java library](https://github.com/xit-vcs/xitdb-java) or the [xitdb Zig library](https://github.com/xit-vcs/xitdb)
 
 ## Quick Start
 
@@ -90,7 +90,7 @@ Use `materialize` to convert a nested `XITDB` data structure to a native Clojure
 ## No query language
 
 Use `filter`, `group-by`, `reduce`, etc.
-If you want a query engine, [`datascript` works out of the box](https://gist.github.com/radarroark/663116fcd204f3f89a7e43f52fa676ef), you can store the datoms as a vector in the db.
+If you want a query engine, [datascript works out of the box](https://gist.github.com/xeubie/663116fcd204f3f89a7e43f52fa676ef), you can store the datoms as a vector in the db.
 
 Here's a taste of how your queries could look like:
 ```clojure 
@@ -183,7 +183,7 @@ If you want to prevent data from being mutated within a transaction, you must `f
 Note that this is not doing an expensive copy of the fruits vector. We are benefitting from structural sharing, just like in-memory Clojure data. The reason we have to `freeze!` is because the default is different than Clojure; in Clojure, you must opt-in to temporary mutability by using transients, whereas in xitdb you must opt-out of it.
 
 ### Architecture
-`xitdb-clj` builds on [xitdb-java](https://github.com/radarroark/xitdb-java) which implements:
+`xitdb-clj` builds on [xitdb-java](https://github.com/xit-vcs/xitdb-java) which implements:
 
 - **Hash Array Mapped Trie (HAMT)** - For efficient map and set operations
 - **RRB Trees** - For vector operations with good concatenation performance
