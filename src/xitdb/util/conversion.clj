@@ -4,8 +4,7 @@
   (:import
     [io.github.radarroark.xitdb
      Database Database$Bytes Database$Float Database$Int
-     ReadArrayList ReadLinkedArrayList ReadCountedHashMap ReadCountedHashSet ReadCursor ReadHashMap
-     ReadHashSet Slot Tag WriteArrayList WriteCountedHashMap WriteCountedHashSet WriteCursor
+     ReadCursor Slot Slotted Tag WriteArrayList WriteCountedHashMap WriteCountedHashSet WriteCursor
      WriteHashMap WriteHashSet WriteLinkedArrayList]
     [java.io OutputStream OutputStreamWriter]
     [java.security DigestOutputStream]))
@@ -146,26 +145,8 @@
     (validation/lazy-seq? v)
     (throw (IllegalArgumentException. "Lazy sequences can be infinite and not allowed!"))
 
-    ;; we only need to check for the read-only data structures,
-    ;; because the writeable data structures inherit from them!
-
-    (instance? ReadArrayList v)
-    (-> ^ReadArrayList v .cursor .slot)
-
-    (instance? ReadLinkedArrayList v)
-    (-> ^ReadLinkedArrayList v .cursor .slot)
-
-    (instance? ReadHashMap v)
-    (-> ^ReadHashMap v .cursor .slot)
-
-    (instance? ReadHashSet v)
-    (-> ^ReadHashSet v .cursor .slot)
-
-    (instance? ReadCountedHashMap v)
-    (-> ^ReadCountedHashMap v .cursor .slot)
-
-    (instance? ReadCountedHashSet v)
-    (-> ^ReadCountedHashSet v .cursor .slot)
+    (instance? Slotted v)
+    (.slot ^Slotted v)
 
     (map? v)
     (do
