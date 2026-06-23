@@ -62,6 +62,57 @@
                       (cons (clojure.lang.MapEntry. k v) (step))))))]
         (step)))))
 
+(defn- kvpair->entry
+  "Turns a Java KeyValuePair (with .-keyCursor/.-valueCursor) into a Clojure
+  MapEntry (decoded key, read value)."
+  [kv read-from-cursor]
+  (clojure.lang.MapEntry.
+    (decode-key-cursor (.-keyCursor kv))
+    (read-from-cursor (.-valueCursor kv))))
+
+(defn smap-seq-from
+  "Lazy ascending seq of MapEntry pairs starting at the first key >= `key`,
+  using the engine's native O(log n) lower-bound seek. nil if none."
+  [^ReadSortedMap rsm read-from-cursor key]
+  (let [it (.iteratorFrom rsm (sorted-key/encode-key key))]
+    (when (.hasNext it)
+      (letfn [(step []
+                (lazy-seq
+                  (when (.hasNext it)
+                    (cons (kvpair->entry (.readKeyValuePair (.next it))
+                                         read-from-cursor)
+                          (step)))))]
+        (step)))))
+
+(defn smap-nth
+  "MapEntry at rank `index` (negative counts from the end), or `not-found` when
+  out of range. O(log n) via the rank-augmented B-tree."
+  [^ReadSortedMap rsm read-from-cursor index not-found]
+  (let [kv (.getIndexKeyValuePair rsm (long index))]
+    (if (nil? kv)
+      not-found
+      (kvpair->entry kv read-from-cursor))))
+
+(defn smap-rank
+  "Number of keys strictly less than `key`. O(log n)."
+  [^ReadSortedMap rsm key]
+  (.rank rsm (sorted-key/encode-key key)))
+
+(defn smap-rseq
+  "Lazy descending seq of MapEntry pairs, walking `getIndexKeyValuePair` from
+  index `start` down to 0. Stays low-memory (one entry materialised at a time)."
+  ([^ReadSortedMap rsm read-from-cursor]
+   (smap-rseq rsm read-from-cursor (dec (.count rsm))))
+  ([^ReadSortedMap rsm read-from-cursor start]
+   (when (>= start 0)
+     (letfn [(step [i]
+               (lazy-seq
+                 (when (>= i 0)
+                   (let [kv (.getIndexKeyValuePair rsm (long i))]
+                     (when kv
+                       (cons (kvpair->entry kv read-from-cursor) (step (dec i))))))))]
+       (step start)))))
+
 (defn smap-kv-reduce
   [^ReadSortedMap rsm read-from-cursor f init]
   (let [it (.iterator rsm)]

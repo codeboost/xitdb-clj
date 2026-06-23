@@ -109,6 +109,84 @@
       (is (clojure.string/starts-with? s "#XITDBSortedMap"))
       (is (clojure.string/includes? s "\"a\" 1, \"b\" 2")))))
 
+(deftest sorted-predicate-and-comparator
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db (sorted-map 3 :c 1 :a 2 :b))
+    (testing "sorted? is true for a persisted sorted map"
+      (is (sorted? @db)))
+    (testing "comparator is consistent with iteration order"
+      (let [^java.util.Comparator c (.comparator ^clojure.lang.Sorted @db)]
+        (is (neg? (.compare c 1 2)))
+        (is (pos? (.compare c 2 1)))
+        (is (zero? (.compare c 2 2)))
+        ;; cross-type bound checks must agree with the engine (not core/compare)
+        (is (neg? (.compare c 5 "x")))))))
+
+(deftest nth-indexed
+  (with-open [db (xdb/xit-db :memory)]
+    (let [oracle (into (sorted-map) (map vector (shuffle (range 20)) (range 20)))]
+      (reset! db oracle)
+      (let [m @db
+            ov (vec oracle)]
+        (testing "nth by positive index matches the oracle's entry at that rank"
+          (doseq [i (range 20)]
+            (is (= (nth ov i) (nth m i)) (str "nth " i))))
+        (testing "negative index counts from the end (-1 = last)"
+          (is (= (last ov) (nth m -1)))
+          (is (= (nth ov 18) (nth m -2))))
+        (testing "out-of-range nth/2 returns not-found"
+          (is (= ::nf (nth m 100 ::nf)))
+          (is (= ::nf (nth m -100 ::nf))))
+        (testing "out-of-range nth/1 throws like a vector"
+          (is (thrown? IndexOutOfBoundsException (nth m 100))))))))
+
+(deftest subseq-matches-oracle
+  (with-open [db (xdb/xit-db :memory)]
+    (let [oracle (into (sorted-map) (map vector (shuffle (range 0 40 2)) (range)))]
+      (reset! db oracle)
+      (let [m @db]
+        (doseq [k [10 11 0 38 39 -1 50]]
+          (testing (str "single-bound subseq at " k)
+            (is (= (subseq oracle >= k) (subseq m >= k)) (str ">= " k))
+            (is (= (subseq oracle > k)  (subseq m > k))  (str "> " k))
+            (is (= (subseq oracle <= k) (subseq m <= k)) (str "<= " k))
+            (is (= (subseq oracle < k)  (subseq m < k))  (str "< " k))))
+        (testing "two-bound subseq"
+          (is (= (subseq oracle >= 10 <= 30) (subseq m >= 10 <= 30)))
+          (is (= (subseq oracle > 10 < 30)   (subseq m > 10 < 30)))
+          (is (= (subseq oracle >= 11 <= 29) (subseq m >= 11 <= 29))))))))
+
+(deftest rseq-and-rsubseq-match-oracle
+  (with-open [db (xdb/xit-db :memory)]
+    (let [oracle (into (sorted-map) (map vector (shuffle (range 0 40 2)) (range)))]
+      (reset! db oracle)
+      (let [m @db]
+        (testing "rseq is the full descending sequence"
+          (is (= (rseq oracle) (rseq m))))
+        (doseq [k [10 11 0 38 39 -1 50]]
+          (testing (str "single-bound rsubseq at " k)
+            (is (= (rsubseq oracle >= k) (rsubseq m >= k)) (str ">= " k))
+            (is (= (rsubseq oracle > k)  (rsubseq m > k))  (str "> " k))
+            (is (= (rsubseq oracle <= k) (rsubseq m <= k)) (str "<= " k))
+            (is (= (rsubseq oracle < k)  (rsubseq m < k))  (str "< " k))))
+        (testing "two-bound rsubseq"
+          (is (= (rsubseq oracle >= 10 <= 30) (rsubseq m >= 10 <= 30)))
+          (is (= (rsubseq oracle > 10 < 30)   (rsubseq m > 10 < 30)))
+          (is (= (rsubseq oracle >= 11 <= 29) (rsubseq m >= 11 <= 29))))))))
+
+(deftest empty-sorted-map-range-queries
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db (sorted-map))
+    (let [m @db]
+      (testing "range queries on an empty (none-cursor) sorted map yield nothing"
+        (is (nil? (seq m)))
+        (is (nil? (rseq m)))
+        (is (empty? (subseq m >= 5)))
+        (is (empty? (subseq m < 5)))
+        (is (empty? (rsubseq m >= 5)))
+        (is (empty? (rsubseq m <= 5)))
+        (is (= ::nf (nth m 0 ::nf)))))))
+
 (deftest numeric-keys-iterate-numerically
   (testing "long keys iterate in numeric, not lexical, order"
     (with-open [db (xdb/xit-db :memory)]
