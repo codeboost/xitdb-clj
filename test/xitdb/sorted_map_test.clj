@@ -91,7 +91,20 @@
                              "set" #{:a :b}))
       (is (= [1 2 3] (tu/materialize (get @db "vec"))))
       (is (= {:x 1} (tu/materialize (get @db "map"))))
-      (is (= #{:a :b} (tu/materialize (get @db "set")))))))
+      (is (= #{:a :b} (tu/materialize (get @db "set"))))))
+  (testing "a sorted map nested directly inside a vector stays sorted"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db [(sorted-map 3 :c 1 :a 2 :b)])
+      (let [m (first (seq @db))]
+        (is (instance? xitdb.sorted_map.XITDBSortedMap m))
+        (is (sorted? m))
+        (is (= [1 2 3] (map key (seq m)))))))
+  (testing "a sorted map nested inside a list stays sorted"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db (list (sorted-map 3 :c 1 :a 2 :b)))
+      (let [m (first (seq @db))]
+        (is (instance? xitdb.sorted_map.XITDBSortedMap m))
+        (is (= [1 2 3] (map key (seq m))))))))
 
 (deftest empty-clears-map
   (with-open [db (xdb/xit-db :memory)]

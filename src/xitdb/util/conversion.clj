@@ -215,6 +215,12 @@
   (let [write-array (WriteArrayList. cursor)]
     (doseq [v coll]
       (cond
+        ;; Sorted map/set are also map?/set?, so delegate to v->slot! (which
+        ;; checks the tree types first) before the generic hash branches.
+        (or (instance? PersistentTreeMap v) (instance? PersistentTreeSet v))
+        (let [v-cursor (.appendCursor write-array)]
+          (.write v-cursor (v->slot! v-cursor v)))
+
         (map? v)
         (let [v-cursor (.appendCursor write-array)]
           (map->WriteHashMapCursor! v-cursor v))
@@ -245,6 +251,12 @@
     (doseq [v coll]
       (when *debug?* (println "v=" v))
       (cond
+        ;; Sorted map/set are also map?/set?, so delegate to v->slot! (which
+        ;; checks the tree types first) before the generic hash branches.
+        (or (instance? PersistentTreeMap v) (instance? PersistentTreeSet v))
+        (let [v-cursor (.appendCursor write-list)]
+          (.write v-cursor (v->slot! v-cursor v)))
+
         (map? v)
         (let [v-cursor (.appendCursor write-list)]
           (map->WriteHashMapCursor! v-cursor v))
