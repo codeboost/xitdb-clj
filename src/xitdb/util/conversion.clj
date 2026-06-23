@@ -1,11 +1,13 @@
 (ns xitdb.util.conversion
   (:require
+    [xitdb.util.sorted-key :as sorted-key]
     [xitdb.util.validation :as validation])
   (:import
+    [clojure.lang PersistentTreeMap]
     [io.github.radarroark.xitdb
      Database Database$Bytes Database$Float Database$Int
      ReadCursor Slot Slotted Tag WriteArrayList WriteCountedHashMap WriteCountedHashSet WriteCursor
-     WriteHashMap WriteHashSet WriteLinkedArrayList]
+     WriteHashMap WriteHashSet WriteLinkedArrayList WriteSortedMap]
     [java.io OutputStream OutputStreamWriter]
     [java.security DigestOutputStream]))
 
@@ -133,6 +135,13 @@
 (declare ^WriteCursor coll->ArrayListCursor!)
 (declare ^WriteCursor list->LinkedArrayListCursor!)
 (declare ^WriteCursor set->WriteCursor!)
+(declare ^WriteCursor sorted-map->WriteSortedMapCursor!)
+
+(defn default-sorted-comparator?
+  "True if `tm` uses Clojure's natural ordering (no custom comparator).
+  Custom comparators cannot be honoured by the engine's fixed byte ordering."
+  [^PersistentTreeMap tm]
+  (identical? clojure.lang.RT/DEFAULT_COMPARATOR (.comparator tm)))
 
 (defn ^Slot v->slot!
   "Converts a value to a XitDB slot.
@@ -147,6 +156,16 @@
 
     (instance? Slotted v)
     (.slot ^Slotted v)
+
+    ;; A sorted map is also `map?`, so it MUST be checked before the generic
+    ;; hash-map branch or it would be shadowed and stored as a hash map.
+    (instance? PersistentTreeMap v)
+    (do
+      (when-not (default-sorted-comparator? v)
+        (throw (IllegalArgumentException.
+                 "sorted-map-by with a custom comparator is not supported; only natural ordering is allowed.")))
+      (.write cursor nil)
+      (.slot (sorted-map->WriteSortedMapCursor! cursor v)))
 
     (map? v)
     (do
@@ -249,6 +268,17 @@
         (.writeIfEmpty key-cursor (v->slot! key-cursor k))
         (.write cursor (v->slot! cursor v))))
     (.-cursor whm)))
+
+(defn ^WriteCursor sorted-map->WriteSortedMapCursor!
+  "Writes a Clojure sorted map `m` to a XitDB WriteSortedMap.
+  Keys are encoded with the order-preserving codec; values are written
+  recursively via `v->slot!`. Returns the cursor of the created WriteSortedMap."
+  [^WriteCursor cursor m]
+  (let [wsm (WriteSortedMap. cursor)]
+    (doseq [[k v] m]
+      (let [value-cursor (.putCursor wsm (sorted-key/encode-key k))]
+        (.write value-cursor (v->slot! value-cursor v))))
+    (.-cursor wsm)))
 
 (defn ^WriteCursor set->WriteCursor!
   "Writes a Clojure set `s` to a XitDB WriteHashSet.
