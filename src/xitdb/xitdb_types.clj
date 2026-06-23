@@ -6,6 +6,7 @@
     [xitdb.hash-set :as xhash-set]
     [xitdb.linked-list :as xlinked-list]
     [xitdb.sorted-map :as xsorted-map]
+    [xitdb.sorted-set :as xsorted-set]
     [xitdb.util.conversion :as conversion])
   (:import
     [io.github.radarroark.xitdb ReadCursor Slot Tag WriteCursor]))
@@ -56,6 +57,11 @@
       (if for-writing?
         (xsorted-map/xwrite-sorted-map cursor)
         (xsorted-map/xsorted-map cursor))
+
+      (= value-tag Tag/SORTED_SET)
+      (if for-writing?
+        (xsorted-set/xwrite-sorted-set cursor)
+        (xsorted-set/xsorted-set cursor))
 
       (= value-tag Tag/ARRAY_LIST)
       (if for-writing?
