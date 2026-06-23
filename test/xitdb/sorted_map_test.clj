@@ -2,7 +2,10 @@
   (:require
     [clojure.test :refer :all]
     [xitdb.db :as xdb]
-    [xitdb.test-utils :as tu :refer [with-db]]))
+    [xitdb.test-utils :as tu :refer [with-db]])
+  (:import
+    [java.time Instant]
+    [java.util Date]))
 
 (deftest lookups-and-count
   (with-open [db (xdb/xit-db :memory)]
@@ -105,6 +108,39 @@
     (let [s (pr-str @db)]
       (is (clojure.string/starts-with? s "#XITDBSortedMap"))
       (is (clojure.string/includes? s "\"a\" 1, \"b\" 2")))))
+
+(deftest numeric-keys-iterate-numerically
+  (testing "long keys iterate in numeric, not lexical, order"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db (sorted-map 9 :a 10 :b 1 :c))
+      (is (= [1 9 10] (map key (seq @db))))
+      (is (= [:c :a :b] (map val (seq @db))))))
+  (testing "negative and positive longs sort together, incl. extremes"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db (into (sorted-map)
+                       (map vector [3 -5 0 Long/MIN_VALUE Long/MAX_VALUE]
+                            (range))))
+      (is (= [Long/MIN_VALUE -5 0 3 Long/MAX_VALUE] (map key (seq @db))))))
+  (testing "double keys sort numerically, incl. negatives and zero"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db (sorted-map 3.5 :a -1.5 :b 0.0 :c 1.0e308 :d -1.0e308 :e))
+      (is (= [-1.0e308 -1.5 0.0 3.5 1.0e308] (map key (seq @db)))))))
+
+(deftest temporal-keys-iterate-chronologically
+  (testing "Instant keys iterate chronologically and round-trip to Instant"
+    (with-open [db (xdb/xit-db :memory)]
+      (let [t0 (Instant/ofEpochSecond 100)
+            t1 (Instant/ofEpochSecond 200 500)
+            t2 (Instant/ofEpochSecond 200 999)]
+        (reset! db (sorted-map t2 :c t0 :a t1 :b))
+        (is (= [t0 t1 t2] (map key (seq @db))))
+        (is (every? #(instance? Instant %) (map key (seq @db)))))))
+  (testing "Date keys iterate chronologically and round-trip to Date"
+    (with-open [db (xdb/xit-db :memory)]
+      (let [d0 (Date. 0) d1 (Date. 1000) d2 (Date. 2000)]
+        (reset! db (sorted-map d2 :c d0 :a d1 :b))
+        (is (= [d0 d1 d2] (map key (seq @db))))
+        (is (every? #(instance? Date %) (map key (seq @db))))))))
 
 (deftest tracer-bullet-ordered-seq
   (testing "a persisted sorted-map is stored as a sorted map and seqs in key order"
