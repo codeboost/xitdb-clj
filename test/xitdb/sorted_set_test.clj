@@ -201,6 +201,13 @@
     (with-db [db (tu/test-db)]
       (reset! db {:idx (sorted-set 3 1 2)})
       (is (tu/db-equal-to-atom? db))))
+  (testing "a sorted set nested directly inside a vector stays sorted"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db [(sorted-set 30 10 20)])
+      (let [s (first (seq @db))]
+        (is (instance? xitdb.sorted_set.XITDBSortedSet s))
+        (is (sorted? s))
+        (is (= [10 20 30] (seq s))))))
   (testing "empty clears the set in place"
     (with-open [db (xdb/xit-db :memory)]
       (reset! db (sorted-set 1 2 3))
