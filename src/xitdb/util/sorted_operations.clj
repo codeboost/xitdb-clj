@@ -98,6 +98,21 @@
   [^ReadSortedMap rsm key]
   (.rank rsm (sorted-key/encode-key key)))
 
+(defn smap-seq-from-index
+  "Lazy ascending seq of MapEntry pairs starting at rank `index` (0-based),
+  using the engine's native O(log n) `iteratorFromIndex` seek. nil if none.
+  Streams one entry at a time; does not materialise the whole collection."
+  [^ReadSortedMap rsm read-from-cursor index]
+  (let [it (.iteratorFromIndex rsm (long index))]
+    (when (.hasNext it)
+      (letfn [(step []
+                (lazy-seq
+                  (when (.hasNext it)
+                    (cons (kvpair->entry (.readKeyValuePair (.next it))
+                                         read-from-cursor)
+                          (step)))))]
+        (step)))))
+
 (defn smap-rseq
   "Lazy descending seq of MapEntry pairs, walking `getIndexKeyValuePair` from
   index `start` down to 0. Stays low-memory (one entry materialised at a time)."
@@ -193,6 +208,19 @@
   "Number of members strictly less than `member`. O(log n)."
   [^ReadSortedSet rss member]
   (.rank rss (sorted-key/encode-key member)))
+
+(defn sset-seq-from-index
+  "Lazy ascending seq of members starting at rank `index` (0-based), using the
+  engine's native O(log n) `iteratorFromIndex` seek. nil if none. Streams one
+  member at a time; does not materialise the whole collection."
+  [^ReadSortedSet rss index]
+  (let [it (.iteratorFromIndex rss (long index))]
+    (when (.hasNext it)
+      (letfn [(step []
+                (lazy-seq
+                  (when (.hasNext it)
+                    (cons (member-from-cursor (.next it)) (step)))))]
+        (step)))))
 
 (defn sset-rseq
   "Lazy descending seq of members, walking `getIndexKeyValuePair` from index
