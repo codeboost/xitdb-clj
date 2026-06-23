@@ -3,11 +3,11 @@
     [xitdb.util.sorted-key :as sorted-key]
     [xitdb.util.validation :as validation])
   (:import
-    [clojure.lang PersistentTreeMap]
+    [clojure.lang PersistentTreeMap PersistentTreeSet]
     [io.github.radarroark.xitdb
      Database Database$Bytes Database$Float Database$Int
      ReadCursor Slot Slotted Tag WriteArrayList WriteCountedHashMap WriteCountedHashSet WriteCursor
-     WriteHashMap WriteHashSet WriteLinkedArrayList WriteSortedMap]
+     WriteHashMap WriteHashSet WriteLinkedArrayList WriteSortedMap WriteSortedSet]
     [java.io OutputStream OutputStreamWriter]
     [java.security DigestOutputStream]))
 
@@ -136,12 +136,14 @@
 (declare ^WriteCursor list->LinkedArrayListCursor!)
 (declare ^WriteCursor set->WriteCursor!)
 (declare ^WriteCursor sorted-map->WriteSortedMapCursor!)
+(declare ^WriteCursor sorted-set->WriteSortedSetCursor!)
 
 (defn default-sorted-comparator?
-  "True if `tm` uses Clojure's natural ordering (no custom comparator).
-  Custom comparators cannot be honoured by the engine's fixed byte ordering."
-  [^PersistentTreeMap tm]
-  (identical? clojure.lang.RT/DEFAULT_COMPARATOR (.comparator tm)))
+  "True if `coll` (a PersistentTreeMap or PersistentTreeSet) uses Clojure's
+  natural ordering (no custom comparator). Custom comparators cannot be honoured
+  by the engine's fixed byte ordering."
+  [coll]
+  (identical? clojure.lang.RT/DEFAULT_COMPARATOR (.comparator ^clojure.lang.Sorted coll)))
 
 (defn ^Slot v->slot!
   "Converts a value to a XitDB slot.
@@ -176,6 +178,16 @@
     (do
       (.write cursor nil)
       (.slot (list->LinkedArrayListCursor! cursor v)))
+
+    ;; A sorted set is also `set?`, so it MUST be checked before the generic
+    ;; hash-set branch or it would be shadowed and stored as a hash set.
+    (instance? PersistentTreeSet v)
+    (do
+      (when-not (default-sorted-comparator? v)
+        (throw (IllegalArgumentException.
+                 "sorted-set-by with a custom comparator is not supported; only natural ordering is allowed.")))
+      (.write cursor nil)
+      (.slot (sorted-set->WriteSortedSetCursor! cursor v)))
 
     (set? v)
     (do
@@ -279,6 +291,16 @@
       (let [value-cursor (.putCursor wsm (sorted-key/encode-key k))]
         (.write value-cursor (v->slot! value-cursor v))))
     (.-cursor wsm)))
+
+(defn ^WriteCursor sorted-set->WriteSortedSetCursor!
+  "Writes a Clojure sorted set `s` to a XitDB WriteSortedSet.
+  Members are encoded with the order-preserving codec. Returns the cursor of the
+  created WriteSortedSet."
+  [^WriteCursor cursor s]
+  (let [wss (WriteSortedSet. cursor)]
+    (doseq [member s]
+      (.put wss (sorted-key/encode-key member)))
+    (.-cursor wss)))
 
 (defn ^WriteCursor set->WriteCursor!
   "Writes a Clojure set `s` to a XitDB WriteHashSet.

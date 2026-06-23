@@ -6,7 +6,7 @@
     [xitdb.util.conversion :as conversion]
     [xitdb.util.sorted-key :as sorted-key])
   (:import
-    [io.github.radarroark.xitdb ReadCursor WriteCursor ReadSortedMap WriteSortedMap]))
+    [io.github.radarroark.xitdb ReadCursor WriteCursor ReadSortedMap WriteSortedMap ReadSortedSet WriteSortedSet]))
 
 (defn smap-item-count
   "O(1) entry count, delegating to the rank-augmented B-tree."
@@ -111,6 +111,102 @@
                    (let [kv (.getIndexKeyValuePair rsm (long i))]
                      (when kv
                        (cons (kvpair->entry kv read-from-cursor) (step (dec i))))))))]
+       (step start)))))
+
+;; ---------------------------------------------------------------------------
+;; Sorted SET helpers. A SORTED_SET is a SortedMap with no values: the MEMBER
+;; is the key. We decode the member from the key cursor of each entry.
+;; ---------------------------------------------------------------------------
+
+(defn sset-item-count
+  "O(1) member count."
+  [^ReadSortedSet rss]
+  (.count rss))
+
+(defn sset-contains?
+  [^ReadSortedSet rss member]
+  (.contains rss (sorted-key/encode-key member)))
+
+(defn sset-assoc-value!
+  "Adds `member` to the set (no-op if already present). Returns the WriteSortedSet."
+  [^WriteSortedSet wss member]
+  (.put wss (sorted-key/encode-key member))
+  wss)
+
+(defn sset-disj-value!
+  "Removes `member` from the set (no-op if absent). Returns the WriteSortedSet."
+  [^WriteSortedSet wss member]
+  (.remove wss (sorted-key/encode-key member))
+  wss)
+
+(defn sset-empty!
+  "Replaces contents with an empty sorted set, in place."
+  [^WriteSortedSet wss]
+  (let [^WriteCursor cursor (.-cursor wss)]
+    (.write cursor nil)
+    (WriteSortedSet. cursor))
+  wss)
+
+(defn- member-from-cursor
+  "Decodes the member from a set entry cursor (its key cursor)."
+  [cursor]
+  (decode-key-cursor (.-keyCursor (.readKeyValuePair cursor))))
+
+(defn- kvpair->member
+  "Decodes the member from a Java KeyValuePair (its key cursor)."
+  [kv]
+  (decode-key-cursor (.-keyCursor kv)))
+
+(defn sset-seq
+  "Lazy ascending seq of members, or nil if empty."
+  [^ReadSortedSet rss]
+  (let [it (.iterator rss)]
+    (when (.hasNext it)
+      (letfn [(step []
+                (lazy-seq
+                  (when (.hasNext it)
+                    (cons (member-from-cursor (.next it)) (step)))))]
+        (step)))))
+
+(defn sset-seq-from
+  "Lazy ascending seq of members starting at the first member >= `member`,
+  using the engine's native O(log n) lower-bound seek. nil if none."
+  [^ReadSortedSet rss member]
+  (let [it (.iteratorFrom rss (sorted-key/encode-key member))]
+    (when (.hasNext it)
+      (letfn [(step []
+                (lazy-seq
+                  (when (.hasNext it)
+                    (cons (member-from-cursor (.next it)) (step)))))]
+        (step)))))
+
+(defn sset-nth
+  "Member at rank `index` (negative counts from the end), or `not-found` when
+  out of range. O(log n)."
+  [^ReadSortedSet rss index not-found]
+  (let [kv (.getIndexKeyValuePair rss (long index))]
+    (if (nil? kv)
+      not-found
+      (kvpair->member kv))))
+
+(defn sset-rank
+  "Number of members strictly less than `member`. O(log n)."
+  [^ReadSortedSet rss member]
+  (.rank rss (sorted-key/encode-key member)))
+
+(defn sset-rseq
+  "Lazy descending seq of members, walking `getIndexKeyValuePair` from index
+  `start` down to 0. Low-memory (one member at a time)."
+  ([^ReadSortedSet rss]
+   (sset-rseq rss (dec (.count rss))))
+  ([^ReadSortedSet rss start]
+   (when (>= start 0)
+     (letfn [(step [i]
+               (lazy-seq
+                 (when (>= i 0)
+                   (let [kv (.getIndexKeyValuePair rss (long i))]
+                     (when kv
+                       (cons (kvpair->member kv) (step (dec i))))))))]
        (step start)))))
 
 (defn smap-kv-reduce
