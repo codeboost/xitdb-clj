@@ -147,6 +147,15 @@
 (defn- ^String utf8-body [^bytes ba]
   (String. ba 1 (dec (alength ba)) StandardCharsets/UTF_8))
 
+(def key-comparator
+  "A `java.util.Comparator` consistent with the engine's natural ordering:
+  compares two keys by `Arrays.compareUnsigned` over their encoded bytes. Use
+  this (not `clojure.core/compare`) so `subseq`/`rsubseq` bound checks agree with
+  on-disk order across all supported types, including heterogeneous keys."
+  (reify java.util.Comparator
+    (compare [_ a b]
+      (java.util.Arrays/compareUnsigned (encode-key a) (encode-key b)))))
+
 (defn decode-key
   "Decodes a byte array produced by `encode-key` back to the Clojure key."
   [^bytes ba]

@@ -10,6 +10,7 @@
   (:require
     [xitdb.common :as common]
     [xitdb.util.conversion :as conversion]
+    [xitdb.util.sorted-key :as sorted-key]
     [xitdb.util.sorted-operations :as sorted-ops])
   (:import
     [io.github.radarroark.xitdb
@@ -17,6 +18,16 @@
 
 (defn smap-seq [rsm]
   (sorted-ops/smap-seq rsm common/-read-from-cursor))
+
+(defn- descending-start-index
+  "Index to begin a descending walk for `seqFrom(key, false)`: the largest rank
+  whose key is <= `key`. Uses `rank` (count of keys strictly < key); if `key`
+  itself is present, include it."
+  [^ReadSortedMap rsm key]
+  (let [r (sorted-ops/smap-rank rsm key)]
+    (if (sorted-ops/smap-contains-key? rsm key)
+      r
+      (dec r))))
 
 (deftype XITDBSortedMap [^ReadSortedMap rsm]
 
@@ -62,6 +73,38 @@
   clojure.lang.Seqable
   (seq [_]
     (smap-seq rsm))
+
+  clojure.lang.Sorted
+  (comparator [_]
+    sorted-key/key-comparator)
+
+  (entryKey [_ entry]
+    (key entry))
+
+  (seq [_ ascending?]
+    (if ascending?
+      (smap-seq rsm)
+      (sorted-ops/smap-rseq rsm common/-read-from-cursor)))
+
+  (seqFrom [_ key ascending?]
+    (if ascending?
+      (sorted-ops/smap-seq-from rsm common/-read-from-cursor key)
+      (sorted-ops/smap-rseq rsm common/-read-from-cursor
+                            (descending-start-index rsm key))))
+
+  clojure.lang.Indexed
+  (nth [this i]
+    (let [e (.nth this i ::not-found)]
+      (if (identical? e ::not-found)
+        (throw (IndexOutOfBoundsException.))
+        e)))
+
+  (nth [_ i not-found]
+    (sorted-ops/smap-nth rsm common/-read-from-cursor i not-found))
+
+  clojure.lang.Reversible
+  (rseq [_]
+    (sorted-ops/smap-rseq rsm common/-read-from-cursor))
 
   clojure.lang.IFn
   (invoke [this k]
