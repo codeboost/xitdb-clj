@@ -42,7 +42,7 @@
     (. clojure.lang.RT (conj (common/-materialize-shallow this) o)))
 
   (empty [this]
-    (sorted-set))
+    (sorted-set-by sorted-key/key-comparator))
 
   (equiv [this other]
     (and (instance? clojure.lang.IPersistentSet other)
@@ -124,19 +124,19 @@
 
   common/IMaterialize
   (-materialize [this]
-    (into (sorted-set) (map common/materialize (seq this))))
+    (into (sorted-set-by sorted-key/key-comparator) (map common/materialize (seq this))))
 
   common/IMaterializeShallow
   (-materialize-shallow [this]
-    (into (sorted-set) (seq this)))
+    (into (sorted-set-by sorted-key/key-comparator) (seq this)))
 
   Object
   (toString [this]
-    (str (into (sorted-set) this))))
+    (str (into (sorted-set-by sorted-key/key-comparator) this))))
 
 (defmethod print-method XITDBSortedSet [o ^java.io.Writer w]
   (.write w "#XITDBSortedSet")
-  (print-method (into (sorted-set) o) w))
+  (print-method (into (sorted-set-by sorted-key/key-comparator) o) w))
 
 ;---------------------------------------------------
 
@@ -201,7 +201,7 @@
 
 (defmethod print-method XITDBWriteSortedSet [o ^java.io.Writer w]
   (.write w "#XITDBWriteSortedSet")
-  (print-method (into (sorted-set) (common/-read-only o)) w))
+  (print-method (into (sorted-set-by sorted-key/key-comparator) (common/-read-only o)) w))
 
 ;; Constructor functions
 (defn xwrite-sorted-set [^WriteCursor write-cursor]

@@ -19,6 +19,31 @@
     (doseq [k [:a :foo/bar :a-much-longer-keyword]]
       (is (= k (sk/decode-key (sk/encode-key k)))))))
 
+(deftest keyword-order-matches-clojure
+  (testing "byte order matches Clojure's default keyword comparator:
+            non-namespaced keywords sort before namespaced ones"
+    (doseq [[a b] [[:a :aa] [:aa :b]
+                   ;; every non-namespaced keyword sorts before any namespaced
+                   [:b :a/a] [:zzz :a/a]
+                   ;; among namespaced: by namespace then name
+                   [:a/a :a/b] [:a/x :ab/a] [:a/b :b/a]]]
+      (is (neg? (cmp-unsigned (sk/encode-key a) (sk/encode-key b)))
+          (str a " < " b))
+      ;; and consistent with clojure.core/compare on keywords
+      (is (= (Integer/signum (compare a b))
+             (Integer/signum (cmp-unsigned (sk/encode-key a) (sk/encode-key b))))
+          (str "order-agrees " a " " b)))))
+
+(deftest keyword-namespace-no-collision
+  (testing "(keyword nil \"a/b\") and :a/b are distinct keys that both round-trip"
+    (let [k1 (keyword nil "a/b") ;; no namespace, name contains a slash
+          k2 :a/b]              ;; namespace \"a\", name \"b\"
+      (is (not= k1 k2))
+      (is (= k1 (sk/decode-key (sk/encode-key k1))))
+      (is (= k2 (sk/decode-key (sk/encode-key k2))))
+      (is (not (java.util.Arrays/equals (sk/encode-key k1) (sk/encode-key k2)))
+          "encodings must differ so the keys do not collide on disk"))))
+
 (deftest string-order-preserved
   (testing "byte order matches code-point order for strings"
     (doseq [[a b] [["a" "b"] ["a" "ab"] ["abc" "abd"] ["" "a"] ["k0009" "k0010"]]]

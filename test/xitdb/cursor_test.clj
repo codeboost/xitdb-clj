@@ -28,3 +28,25 @@
 
       (testing "Correctly handles invalid cursor path"
         (is (thrown? IndexOutOfBoundsException @(xdb/xdb-cursor db [:foo :bar 999])))))))
+
+(deftest cursor-into-sorted-map
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db {:idx (sorted-map 1 {:name "a"} 2 {:name "b"})})
+    (let [c (xdb/xdb-cursor db [:idx 1 :name])]
+      (testing "read through a sorted-map key"
+        (is (= "a" @c)))
+      (testing "reset! through a sorted-map key writes back to the db"
+        (reset! c "A")
+        (is (= "A" @c))
+        (is (= "A" (get-in (xdb/materialize @db) [:idx 1 :name])))
+        (is (= "b" (get-in (xdb/materialize @db) [:idx 2 :name])))))))
+
+(deftest cursor-into-sorted-set
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db {:tags (sorted-set "a" "b" "c")})
+    (let [c (xdb/xdb-cursor db [:tags])]
+      (testing "read a sorted set through a cursor"
+        (is (= ["a" "b" "c"] (seq (xdb/materialize @c)))))
+      (testing "swap! mutates the sorted set at the cursor"
+        (swap! c conj "d")
+        (is (= ["a" "b" "c" "d"] (seq (xdb/materialize @c))))))))

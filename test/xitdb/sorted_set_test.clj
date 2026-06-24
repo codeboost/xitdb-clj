@@ -52,6 +52,20 @@
       (is (= [1 2 3] (seq s)))
       (is (= #{1 2 3} s)))))
 
+(deftest heterogeneous-members-materialize-and-print
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db (sorted-set))
+    (swap! db conj 1)
+    (swap! db conj "x")
+    (testing "seq works with mixed member types"
+      (is (= [1 "x"] (seq @db))))
+    (testing "materialize does not throw on mixed member types"
+      (let [s (tu/materialize @db)]
+        (is (sorted? s))
+        (is (= [1 "x"] (seq s)))))
+    (testing "pr-str does not throw on mixed member types"
+      (is (string? (pr-str @db))))))
+
 (deftest read-only-ops-return-plain-collections
   (with-open [db (xdb/xit-db :memory)]
     (reset! db (sorted-set 1 2))
