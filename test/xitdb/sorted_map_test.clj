@@ -74,6 +74,26 @@
     (testing "pr-str does not throw on mixed key types"
       (is (string? (pr-str @db))))))
 
+(deftest materialized-sorted-map-can-be-written-back
+  (testing "a materialized sorted map (which carries key-comparator) can be
+            stored into another db without being rejected as a custom comparator"
+    (with-open [db1 (xdb/xit-db :memory)
+                db2 (xdb/xit-db :memory)]
+      (reset! db1 (sorted-map "b" 2 "a" 1))
+      (let [m (tu/materialize @db1)]
+        (reset! db2 m)
+        (is (= ["a" "b"] (map key (seq @db2))))
+        (is (= 1 (get @db2 "a"))))))
+  (testing "round-trips through materialize even with heterogeneous keys"
+    (with-open [db1 (xdb/xit-db :memory)
+                db2 (xdb/xit-db :memory)]
+      (reset! db1 (sorted-map))
+      (swap! db1 assoc 1 :one)
+      (swap! db1 assoc "x" :ex)
+      (let [m (tu/materialize @db1)]
+        (reset! db2 m)
+        (is (= [1 "x"] (map key (seq @db2))))))))
+
 (deftest materialize-returns-plain-sorted-map
   (with-open [db (xdb/xit-db :memory)]
     (reset! db (sorted-map "b" 2 "a" 1))
