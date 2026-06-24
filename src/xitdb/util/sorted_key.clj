@@ -14,9 +14,11 @@
   type on decode and establishes a total order across types, so heterogeneous
   keys never throw.
 
-  This namespace currently implements string and keyword keys (UTF-8 bytes,
-  which already sort in code-point order). Numeric/temporal keys are added in a
-  later slice."
+  Supported key types: string, keyword, long, double, Instant and Date. Strings
+  encode as their UTF-8 bytes (already code-point ordered); keywords use a flag
+  + namespace + name layout so they sort like Clojure's default comparator (see
+  `keyword->bytes`); numeric/temporal keys use order-preserving big-endian
+  encodings."
   (:import
     [java.io ByteArrayOutputStream]
     [java.nio ByteBuffer]
@@ -107,12 +109,40 @@
 (defn- ^Date bytes->date [^bytes ba off]
   (Date. (bit-xor (.getLong (ByteBuffer/wrap ba (int off) 8)) Long/MIN_VALUE)))
 
-(defn ^String keyname
-  "String form of a keyword key, namespace-qualified when present."
-  [k]
-  (if (namespace k)
-    (str (namespace k) "/" (name k))
-    (name k)))
+;; Keyword presence-of-namespace flag (the first body byte). 0 sorts before 1,
+;; so non-namespaced keywords sort before namespaced ones, matching Clojure's
+;; default comparator (clojure.lang.Symbol.compareTo).
+(def ^:const kw-no-ns  (int 0x00))
+(def ^:const kw-has-ns (int 0x01))
+
+(defn- keyword->bytes
+  "Order-preserving, collision-free encoding of a keyword, matching Clojure's
+  default comparator: non-namespaced keywords sort before namespaced ones, then
+  by namespace, then by name.
+
+  Layout (after the type tag): a flag byte, then the parts.
+    - no namespace : `kw-no-ns`  ++ name-utf8
+    - namespaced   : `kw-has-ns` ++ ns-utf8 ++ 0x00 ++ name-utf8
+
+  The 0x00 separator can never appear inside UTF-8 keyword text (NUL is not a
+  legal keyword character), so it sorts below every namespace byte and cleanly
+  delimits namespace from name. The flag byte also keeps `(keyword nil \"a/b\")`
+  (no namespace, name \"a/b\") distinct from `:a/b` (namespace \"a\", name
+  \"b\"), which would otherwise both flatten to \"a/b\"."
+  ^bytes [k]
+  (let [out (ByteArrayOutputStream.)
+        ns  (namespace k)
+        nm  ^bytes (utf8 (name k))]
+    (if ns
+      (let [nsb ^bytes (utf8 ns)]
+        (.write out kw-has-ns)
+        (.write out nsb 0 (alength nsb))
+        (.write out (int 0x00))
+        (.write out nm 0 (alength nm)))
+      (do
+        (.write out kw-no-ns)
+        (.write out nm 0 (alength nm))))
+    (.toByteArray out)))
 
 (defn encode-key
   "Encodes Clojure key `k` to an order-preserving, reversible byte array."
@@ -122,7 +152,7 @@
     (tagged tag-string (utf8 k))
 
     (keyword? k)
-    (tagged tag-keyword (utf8 (keyname k)))
+    (tagged tag-keyword (keyword->bytes k))
 
     (integer? k)
     (tagged tag-long (long->bytes (long k)))
@@ -147,6 +177,21 @@
 (defn- ^String utf8-body [^bytes ba]
   (String. ba 1 (dec (alength ba)) StandardCharsets/UTF_8))
 
+(defn- decode-keyword
+  "Inverse of `keyword->bytes`. `ba[0]` is the type tag, `ba[1]` is the
+  namespace-presence flag, the remainder is the part(s)."
+  [^bytes ba]
+  (let [flag (bit-and (int (aget ba 1)) 0xff)]
+    (if (= flag kw-no-ns)
+      ;; Use the 2-arg form with a nil namespace so a name containing \"/\"
+      ;; is not re-parsed into a namespace (which would corrupt the key).
+      (keyword nil (String. ba 2 (- (alength ba) 2) StandardCharsets/UTF_8))
+      (let [sep (loop [i 2]
+                  (if (zero? (aget ba i)) i (recur (inc i))))
+            ns  (String. ba 2 (- sep 2) StandardCharsets/UTF_8)
+            nm  (String. ba (inc sep) (- (alength ba) (inc sep)) StandardCharsets/UTF_8)]
+        (keyword ns nm)))))
+
 (def key-comparator
   "A `java.util.Comparator` consistent with the engine's natural ordering:
   compares two keys by `Arrays.compareUnsigned` over their encoded bytes. Use
@@ -162,7 +207,7 @@
   (let [tag (bit-and (int (aget ba 0)) 0xff)]
     (condp = tag
       tag-string  (utf8-body ba)
-      tag-keyword (keyword (utf8-body ba))
+      tag-keyword (decode-keyword ba)
       tag-long    (bytes->long ba 1)
       tag-double  (bytes->double ba 1)
       tag-instant (bytes->instant ba 1)

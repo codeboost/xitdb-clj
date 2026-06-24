@@ -64,7 +64,7 @@
     (. clojure.lang.RT (conj (common/-materialize-shallow this) o)))
 
   (empty [this]
-    (sorted-map))
+    (sorted-map-by sorted-key/key-comparator))
 
   (equiv [this other]
     (and (instance? clojure.lang.IPersistentMap other)
@@ -139,20 +139,20 @@
   common/IMaterialize
   (-materialize [this]
     (reduce (fn [m [k v]]
-              (assoc m k (common/materialize v))) (sorted-map) (seq this)))
+              (assoc m k (common/materialize v))) (sorted-map-by sorted-key/key-comparator) (seq this)))
 
   common/IMaterializeShallow
   (-materialize-shallow [this]
     (reduce (fn [m [k v]]
-              (assoc m k v)) (sorted-map) (seq this)))
+              (assoc m k v)) (sorted-map-by sorted-key/key-comparator) (seq this)))
 
   Object
   (toString [this]
-    (str (into (sorted-map) this))))
+    (str (into (sorted-map-by sorted-key/key-comparator) this))))
 
 (defmethod print-method XITDBSortedMap [o ^java.io.Writer w]
   (.write w "#XITDBSortedMap")
-  (print-method (into (sorted-map) o) w))
+  (print-method (into (sorted-map-by sorted-key/key-comparator) o) w))
 
 ;---------------------------------------------------
 
@@ -239,7 +239,7 @@
 
 (defmethod print-method XITDBWriteSortedMap [o ^java.io.Writer w]
   (.write w "#XITDBWriteSortedMap")
-  (print-method (into (sorted-map) (common/-read-only o)) w))
+  (print-method (into (sorted-map-by sorted-key/key-comparator) (common/-read-only o)) w))
 
 (defn xwrite-sorted-map [^WriteCursor write-cursor]
   (->XITDBWriteSortedMap (WriteSortedMap. write-cursor)))

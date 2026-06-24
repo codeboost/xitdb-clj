@@ -45,6 +45,35 @@
       (is (every? keyword? (map key (seq @db))))
       (is (= 1 (get @db :apple))))))
 
+(deftest namespaced-keyword-keys-match-clojure-order
+  (with-open [db (xdb/xit-db :memory)]
+    (let [oracle (sorted-map :b 2 :a/a 3 :a 1 :aa 4)]
+      (reset! db oracle)
+      (testing "namespaced keywords sort like Clojure's default comparator
+                (non-namespaced before namespaced), not as flattened strings"
+        (is (= (keys oracle) (map key (seq @db))))
+        (is (= [:a :aa :b :a/a] (map key (seq @db)))))
+      (testing "subseq agrees with the Clojure oracle"
+        (is (= (vec (subseq oracle >= :aa))
+               (vec (subseq @db >= :aa)))))
+      (testing "values round-trip under namespaced keys"
+        (is (= 3 (get @db :a/a)))))))
+
+(deftest heterogeneous-keys-materialize-and-print
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db (sorted-map))
+    (swap! db assoc 1 :one)
+    (swap! db assoc "x" :ex)
+    (testing "seq works with mixed key types"
+      (is (= [1 "x"] (map key (seq @db)))))
+    (testing "materialize does not throw on mixed key types"
+      (let [m (tu/materialize @db)]
+        (is (sorted? m))
+        (is (= [1 "x"] (keys m)))
+        (is (= {1 :one "x" :ex} (into {} m)))))
+    (testing "pr-str does not throw on mixed key types"
+      (is (string? (pr-str @db))))))
+
 (deftest materialize-returns-plain-sorted-map
   (with-open [db (xdb/xit-db :memory)]
     (reset! db (sorted-map "b" 2 "a" 1))

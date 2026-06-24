@@ -77,6 +77,19 @@
         (testing "from-index streams from a rank to the end"
           (is (= (subvec ov 17 20) (xsorted/from-index s 17))))))))
 
+(deftest negative-offset-rejected
+  (testing "from-index/page reject a negative rank eagerly, not on realisation"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db (into (sorted-map) (map vector (range 10) (range))))
+      (let [m @db]
+        (is (thrown? IllegalArgumentException (xsorted/from-index m -1)))
+        (is (thrown? IllegalArgumentException (xsorted/page m -1 5)))))
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db (into (sorted-set) (range 10)))
+      (let [s @db]
+        (is (thrown? IllegalArgumentException (xsorted/from-index s -1)))
+        (is (thrown? IllegalArgumentException (xsorted/page s -1 5)))))))
+
 (deftest pagination-is-lazy
   (testing "from-index returns a lazy seq and does not realise a large collection"
     (with-open [db (xdb/xit-db :memory)]

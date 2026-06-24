@@ -51,6 +51,9 @@
   the elements are `MapEntry` pairs; for a sorted set they are members. Returns
   nil when `n` is at or past the end."
   [coll n]
+  (when (neg? n)
+    (throw (IllegalArgumentException.
+             (str "from-index requires a non-negative rank, got: " n))))
   (let [u (common/-unwrap coll)]
     (cond
       (instance? ReadSortedMap u)

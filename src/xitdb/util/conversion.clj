@@ -20,6 +20,8 @@
     (= tag Tag/ARRAY_LIST) :array-list
     (= tag Tag/LINKED_ARRAY_LIST) :linked-array-list
     (= tag Tag/HASH_MAP) :hash-map
+    (= tag Tag/SORTED_MAP) :sorted-map
+    (= tag Tag/SORTED_SET) :sorted-set
     (= tag Tag/KV_PAIR) :kv-pair
     (= tag Tag/BYTES) :bytes
     (= tag Tag/SHORT_BYTES) :short-bytes
@@ -389,6 +391,12 @@
 
       (= value-tag Tag/COUNTED_HASH_MAP)
       (map-write-cursor (WriteCountedHashMap. cursor) current-key)
+
+      ;; Sorted maps store the real key bytes (order-preserving codec), so a
+      ;; keypath write resolves a value cursor by the encoded key, mirroring the
+      ;; read-side dispatch in `read-from-cursor`.
+      (= value-tag Tag/SORTED_MAP)
+      (.putCursor (WriteSortedMap. cursor) (sorted-key/encode-key current-key))
 
       (= value-tag Tag/HASH_SET)
       (set-write-cursor (WriteHashSet. cursor) current-key)
