@@ -66,6 +66,16 @@
     (testing "pr-str does not throw on mixed member types"
       (is (string? (pr-str @db))))))
 
+(deftest materialized-sorted-set-can-be-written-back
+  (testing "a materialized sorted set (which carries key-comparator) can be
+            stored into another db without being rejected as a custom comparator"
+    (with-open [db1 (xdb/xit-db :memory)
+                db2 (xdb/xit-db :memory)]
+      (reset! db1 (sorted-set 3 1 2))
+      (let [s (tu/materialize @db1)]
+        (reset! db2 s)
+        (is (= [1 2 3] (seq @db2)))))))
+
 (deftest read-only-ops-return-plain-collections
   (with-open [db (xdb/xit-db :memory)]
     (reset! db (sorted-set 1 2))

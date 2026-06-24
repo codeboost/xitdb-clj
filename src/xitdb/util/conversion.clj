@@ -141,11 +141,15 @@
 (declare ^WriteCursor sorted-set->WriteSortedSetCursor!)
 
 (defn default-sorted-comparator?
-  "True if `coll` (a PersistentTreeMap or PersistentTreeSet) uses Clojure's
-  natural ordering (no custom comparator). Custom comparators cannot be honoured
-  by the engine's fixed byte ordering."
+  "True if `coll` (a PersistentTreeMap or PersistentTreeSet) is ordered in a way
+  the engine can honour with its fixed unsigned byte ordering: either Clojure's
+  natural ordering (no custom comparator) or `sorted-key/key-comparator`, which
+  *is* that byte ordering and is what `materialize` stamps onto the collections
+  it rebuilds. Any other custom comparator is rejected."
   [coll]
-  (identical? clojure.lang.RT/DEFAULT_COMPARATOR (.comparator ^clojure.lang.Sorted coll)))
+  (let [cmp (.comparator ^clojure.lang.Sorted coll)]
+    (or (identical? clojure.lang.RT/DEFAULT_COMPARATOR cmp)
+        (identical? sorted-key/key-comparator cmp))))
 
 (defn ^Slot v->slot!
   "Converts a value to a XitDB slot.
@@ -400,6 +404,17 @@
 
       (= value-tag Tag/HASH_SET)
       (set-write-cursor (WriteHashSet. cursor) current-key)
+
+      ;; A sorted-set member is stored as an immutable B-tree key (the engine
+      ;; only exposes a writeable value slot, which a set never uses), so there
+      ;; is no in-place "member cursor" to hand back the way a hash set has.
+      ;; Mutating membership goes through conj/disj on the set itself.
+      (= value-tag Tag/SORTED_SET)
+      (throw (IllegalArgumentException.
+               (format (str "Cannot get a write cursor to sorted-set member '%s': "
+                            "sorted-set members are immutable keys. Use conj/disj "
+                            "on the sorted set itself to change membership.")
+                       current-key)))
 
       (= value-tag Tag/COUNTED_HASH_SET)
       (set-write-cursor (WriteCountedHashSet. cursor) current-key)

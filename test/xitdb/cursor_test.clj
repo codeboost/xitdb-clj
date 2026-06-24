@@ -50,3 +50,12 @@
       (testing "swap! mutates the sorted set at the cursor"
         (swap! c conj "d")
         (is (= ["a" "b" "c" "d"] (seq (xdb/materialize @c))))))))
+
+(deftest cursor-into-sorted-set-member-is-rejected
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db {:tags (sorted-set "a" "b" "c")})
+    (testing "writing into a sorted-set member throws a clear, specific error
+              (members are immutable keys; use conj/disj on the set itself)"
+      (let [c (xdb/xdb-cursor db [:tags "a"])
+            ex (is (thrown? IllegalArgumentException (reset! c "z")))]
+        (is (re-find #"sorted-set member" (.getMessage ex)))))))
