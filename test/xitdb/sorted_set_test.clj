@@ -215,6 +215,25 @@
       (is (clojure.string/starts-with? s "#XITDBSortedSet"))
       (is (clojure.string/includes? s "1 2 3")))))
 
+(deftest write-view-supports-sorted-indexed-reversible
+  (testing "the writeable sorted set handed to swap! supports nth/subseq/rseq
+            and exposes the same comparator as the read view"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db (into (sorted-set) (range 5)))
+      (swap! db
+             (fn [s]
+               (is (= 0 (nth s 0)))
+               (is (= 2 (nth s 2)))
+               (is (= ::nf (nth s 99 ::nf)))
+               (is (= [2 3 4] (subseq s >= 2)))
+               (is (= [0 1] (subseq s < 2)))
+               (is (= [4 3 2 1 0] (rseq s)))
+               (is (instance? java.util.Comparator
+                              (.comparator ^clojure.lang.Sorted s)))
+               s))
+      (testing "the data is unchanged after read-only queries in the txn"
+        (is (= [0 1 2 3 4] (seq @db)))))))
+
 (deftest nesting-and-round-trip
   (testing "sorted set nests inside a hash map value"
     (with-open [db (xdb/xit-db :memory)]
@@ -239,4 +258,15 @@
       (is (= 0 (count @db)))
       (is (empty? (seq @db)))
       (swap! db conj 7)
-      (is (= [7] (seq @db))))))
+      (is (= [7] (seq @db)))))
+  (testing "after empty the value is still a sorted set, so re-inserted members
+            keep sorted (not hash-set) semantics"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db (sorted-set 1 2 3))
+      (swap! db empty)
+      (is (instance? xitdb.sorted_set.XITDBSortedSet @db))
+      (is (sorted? @db))
+      (swap! db conj 5 1 3)
+      (is (instance? xitdb.sorted_set.XITDBSortedSet @db))
+      (is (sorted? @db))
+      (is (= [1 3 5] (seq @db))))))

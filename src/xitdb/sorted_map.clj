@@ -5,11 +5,11 @@
   used inside a transaction. Ordering is by the engine's unsigned byte
   comparison over order-preserving encoded keys (see `xitdb.util.sorted-key`).
 
-  The `clojure.lang.Sorted`/`Indexed`/`Reversible` protocols (subseq, nth, rseq)
-  are added in a later slice; this slice provides ascending ordered `seq` only."
+  Both views implement `clojure.lang.Sorted`/`Indexed`/`Reversible` (subseq,
+  nth, rseq) on top of the rank-augmented B-tree, in addition to ascending
+  ordered `seq`."
   (:require
     [xitdb.common :as common]
-    [xitdb.util.conversion :as conversion]
     [xitdb.util.sorted-key :as sorted-key]
     [xitdb.util.sorted-operations :as sorted-ops])
   (:import
@@ -216,6 +216,41 @@
   clojure.lang.Seqable
   (seq [_]
     (smap-seq wsm))
+
+  ;; The same ordered read machinery as XITDBSortedMap, reading the
+  ;; in-transaction (uncommitted) state. `WriteSortedMap` is a `ReadSortedMap`
+  ;; subclass, so the rank/index-based ops apply directly to `wsm`.
+  clojure.lang.Sorted
+  (comparator [_]
+    sorted-key/key-comparator)
+
+  (entryKey [_ entry]
+    (key entry))
+
+  (seq [_ ascending?]
+    (if ascending?
+      (smap-seq wsm)
+      (sorted-ops/smap-rseq wsm common/-read-from-cursor)))
+
+  (seqFrom [_ key ascending?]
+    (if ascending?
+      (sorted-ops/smap-seq-from wsm common/-read-from-cursor key)
+      (sorted-ops/smap-rseq wsm common/-read-from-cursor
+                            (descending-start-index wsm key))))
+
+  clojure.lang.Indexed
+  (nth [this i]
+    (let [e (.nth this i ::not-found)]
+      (if (identical? e ::not-found)
+        (throw (IndexOutOfBoundsException.))
+        e)))
+
+  (nth [_ i not-found]
+    (sorted-ops/smap-nth wsm common/-read-from-cursor i not-found))
+
+  clojure.lang.Reversible
+  (rseq [_]
+    (sorted-ops/smap-rseq wsm common/-read-from-cursor))
 
   clojure.core.protocols/IKVReduce
   (kv-reduce [this f init]
