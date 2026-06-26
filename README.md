@@ -108,6 +108,64 @@ Here's a taste of how your queries could look like:
 
 ```
 
+## Sorted collections
+
+In addition to (unordered) hash maps and sets, xitdb supports **on-disk sorted
+maps and sets**, backed by the engine's rank-augmented B-tree. Store a Clojure
+`sorted-map` / `sorted-set` and it is persisted as a sorted collection that keeps
+its keys/members ordered on disk:
+
+```clojure
+(reset! db (sorted-map "banana" 2 "apple" 1 "cherry" 3))
+
+@db
+;; => #XITDBSortedMap{"apple" 1, "banana" 2, "cherry" 3}
+
+(swap! db assoc "date" 4) ;; inserted in order, not appended
+```
+
+Reading back yields an `XITDBSortedMap` / `XITDBSortedSet` that implements
+Clojure's ordered interfaces, so `seq`, `rseq`, `nth`, `subseq` and `rsubseq`
+all work and read only what they touch from disk:
+
+```clojure
+(reset! db (into (sorted-map) (map vector (range 0 100 2) (range))))
+
+(nth @db 10)          ;; => [20 10]   ;; O(log n), no full scan
+(subseq @db >= 90)    ;; => ([90 45] [92 46] [94 47] [96 48] [98 49])
+(rseq @db)            ;; => lazy descending seq of entries
+```
+
+Supported key/member types are strings, keywords, longs, doubles, `Instant`
+and `Date`. They are stored with an order-preserving codec, so they iterate in
+natural order — numeric for numbers, chronological for temporals, lexicographic
+(by code point) for strings. Longs and doubles share a single numeric ordering,
+so they interleave by value (e.g. `1 < 1.5 < 2`). Only the default ordering is
+supported: `sorted-map-by` / `sorted-set-by` with a custom comparator is
+rejected.
+
+### Ranking & pagination
+
+The `xitdb.sorted` namespace exposes the B-tree's O(log n) superpowers, which
+are handy for building and paging on-disk secondary indexes:
+
+- `(rank coll k)` — number of entries strictly less than `k` (i.e. the index of
+  `k`, or its would-be insertion index if absent).
+- `(from-index coll n)` — lazy ordered seq starting at rank `n`.
+- `(page coll offset limit)` — lazy ordered page `[offset, offset+limit)`.
+
+```clojure
+(require '[xitdb.sorted :as xsorted])
+
+;; build a timestamp -> id index; events can arrive out of order
+(reset! db (sorted-map))
+(doseq [e events]
+  (swap! db assoc (:ts e) (:id e)))
+
+(xsorted/rank @db some-ts)     ;; chronological position of some-ts
+(xsorted/page @db 100 20)      ;; the 20 entries at ranks [100, 120)
+```
+
 ## History
 
 Since the database is immutable, all previous values are accessed by reading
@@ -199,8 +257,10 @@ The Clojure wrapper adds:
 ### Supported Data Types
 
 - **Maps** - Hash maps with efficient key-value access
+- **Sorted maps** - On-disk B-tree maps with ordered iteration, `subseq`/`nth`/`rank`
 - **Vectors** - Array lists with indexed access
 - **Sets** - Hash sets with unique element storage
+- **Sorted sets** - On-disk B-tree sets with ordered iteration and ranking
 - **Lists** - Linked lists and RRB tree-based linked array lists
 - **Primitives** - Numbers, strings, keywords, booleans, dates.
 
