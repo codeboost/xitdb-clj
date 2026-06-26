@@ -29,14 +29,21 @@
 ;; Type tags. Ordering of the tag values defines the cross-type order; they are
 ;; intentionally sparse to leave room for additional types in later slices.
 ;; Current cross-type order (by ascending tag byte):
-;;   long (0x10) < double (0x11) < instant (0x18) < date (0x19)
-;;   < string (0x20) < keyword (0x21)
-(def ^:const tag-long    (int 0x10))
-(def ^:const tag-double  (int 0x11))
+;;   number (0x10) < instant (0x18) < date (0x19) < string (0x20) < keyword (0x21)
+;; Longs and doubles share the single `tag-number` so they interleave by numeric
+;; value (see `number-body`) instead of being split into two adjacent ranges.
+(def ^:const tag-number  (int 0x10))
 (def ^:const tag-instant (int 0x18))
 (def ^:const tag-date    (int 0x19))
 (def ^:const tag-string  (int 0x20))
 (def ^:const tag-keyword (int 0x21))
+
+;; Numeric subtype byte (the body byte right after the 8-byte sort key).
+;; `num-long` sorts before `num-double`, so a long and a double of equal numeric
+;; value order deterministically (long first); it is only ever consulted as a
+;; tie-breaker between values that share a sort key.
+(def ^:const num-long   (int 0x00))
+(def ^:const num-double (int 0x01))
 
 (defn- ^bytes utf8 [^String s]
   (.getBytes s StandardCharsets/UTF_8))
@@ -80,6 +87,37 @@
                (bit-and flipped Long/MAX_VALUE)
                (bit-not flipped))]
     (Double/longBitsToDouble bits)))
+
+(defn- ^bytes number-body
+  "Order-preserving, reversible body shared by long and double keys, so the two
+  types interleave by numeric value in one space.
+
+  Layout (17 bytes, after the type tag):
+    [8-byte sort key][1-byte subtype][8-byte exact value]
+
+  The sort key is the value rendered through `double->bytes`, so unsigned byte
+  comparison of two sort keys matches numeric comparison to double precision
+  (~53 significant bits). The `subtype` byte (long < double) and the exact 8
+  bytes break ties between values that share a sort key, keeping the order total
+  and making the original long/double recoverable on decode.
+
+  Caveat: because the sort key has double precision, two values that differ only
+  beyond 2^53 *and* have different types (one long, one double) can order by the
+  tie-break rather than strictly by value. Same-type ordering is always exact."
+  [subtype ^bytes sortkey ^bytes exact]
+  (let [out (ByteArrayOutputStream. 17)]
+    (.write out sortkey 0 8)
+    (.write out (int subtype))
+    (.write out exact 0 8)
+    (.toByteArray out)))
+
+(defn- decode-number
+  "Inverse of `number-body`. The subtype byte is at offset 9 (1 type tag + 8
+  sort-key bytes) and the exact value occupies the 8 bytes at offset 10."
+  [^bytes ba]
+  (if (= (bit-and (int (aget ba 9)) 0xff) num-long)
+    (bytes->long ba 10)
+    (bytes->double ba 10)))
 
 (defn- ^bytes instant->bytes
   "12 bytes: epoch-second (8-byte big-endian, sign-flipped so negative epochs
@@ -155,14 +193,24 @@
     (tagged tag-keyword (keyword->bytes k))
 
     (integer? k)
-    (tagged tag-long (long->bytes (long k)))
+    (let [n (try
+              (long k)
+              (catch IllegalArgumentException _
+                (throw (IllegalArgumentException.
+                         (str "Integer sorted-map key out of range: " k
+                              ". Sorted collections encode integer keys as signed "
+                              "64-bit longs, so keys must be within "
+                              "[" Long/MIN_VALUE ", " Long/MAX_VALUE "].")))))]
+      (tagged tag-number
+              (number-body num-long (double->bytes (double n)) (long->bytes n))))
 
     (float? k)
     (let [d (double k)]
       (when (Double/isNaN d)
         (throw (IllegalArgumentException.
                  "NaN is not a valid sorted-map key (ordering undefined)")))
-      (tagged tag-double (double->bytes d)))
+      (tagged tag-number
+              (number-body num-double (double->bytes d) (double->bytes d))))
 
     (instance? Instant k)
     (tagged tag-instant (instant->bytes k))
@@ -208,8 +256,7 @@
     (condp = tag
       tag-string  (utf8-body ba)
       tag-keyword (decode-keyword ba)
-      tag-long    (bytes->long ba 1)
-      tag-double  (bytes->double ba 1)
+      tag-number  (decode-number ba)
       tag-instant (bytes->instant ba 1)
       tag-date    (bytes->date ba 1)
       (throw (IllegalArgumentException. (str "Unknown sorted-key tag: " tag))))))

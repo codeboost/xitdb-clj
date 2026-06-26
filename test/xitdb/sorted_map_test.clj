@@ -164,6 +164,20 @@
     (swap! db assoc "c" 3)
     (is (= ["c"] (map key (seq @db))))))
 
+(deftest empty-then-reassoc-stays-a-sorted-map
+  (testing "after (swap! db empty) the value is still a sorted map, so keys
+            re-inserted afterwards keep sorted (not hash-map) semantics"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db (sorted-map "a" 1 "b" 2))
+      (swap! db empty)
+      (is (instance? xitdb.sorted_map.XITDBSortedMap @db))
+      (is (sorted? @db))
+      (is (= 0 (count @db)))
+      (swap! db assoc "c" 3 "a" 1)
+      (is (instance? xitdb.sorted_map.XITDBSortedMap @db))
+      (is (sorted? @db))
+      (is (= ["a" "c"] (map key (seq @db)))))))
+
 (deftest print-method-ordered
   (with-open [db (xdb/xit-db :memory)]
     (reset! db (sorted-map "b" 2 "a" 1))
@@ -266,6 +280,28 @@
       (reset! db (sorted-map 3.5 :a -1.5 :b 0.0 :c 1.0e308 :d -1.0e308 :e))
       (is (= [-1.0e308 -1.5 0.0 3.5 1.0e308] (map key (seq @db)))))))
 
+(deftest mixed-long-double-keys-interleave-numerically
+  (testing "long and double keys sort by numeric value and round-trip with type"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db (into (sorted-map)
+                       (map vector [1 0.5 2 1.5 3 -1.5] (range))))
+      (is (= [-1.5 0.5 1 1.5 2 3] (map key (seq @db))))
+      (is (some #(instance? Double %) (map key (seq @db))))
+      (is (some integer? (map key (seq @db))))))
+  (testing "matches the in-memory Clojure sorted-map oracle for mixed keys"
+    (with-open [db (xdb/xit-db :memory)]
+      (let [oracle (into (sorted-map)
+                         (map vector [10 2.5 7 0.25 -3 -3.5 100.0 4] (range)))]
+        (reset! db oracle)
+        (is (= (keys oracle) (map key (seq @db)))))))
+  (testing "a double bound queries a long-keyed map at the right place (subseq)"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db (into (sorted-map) (map vector [1 2 3 4 5] (range))))
+      (let [m @db]
+        (is (= [2 3 4 5] (map key (subseq m >= 1.5))))
+        (is (= [1 2 3]   (map key (subseq m <= 3.5))))
+        (is (= [3 4]     (map key (subseq m > 2.5 < 4.5))))))))
+
 (deftest temporal-keys-iterate-chronologically
   (testing "Instant keys iterate chronologically and round-trip to Instant"
     (with-open [db (xdb/xit-db :memory)]
@@ -281,6 +317,25 @@
         (reset! db (sorted-map d2 :c d0 :a d1 :b))
         (is (= [d0 d1 d2] (map key (seq @db))))
         (is (every? #(instance? Date %) (map key (seq @db))))))))
+
+(deftest write-view-supports-sorted-indexed-reversible
+  (testing "the writeable sorted map handed to swap! supports nth/subseq/rseq
+            and exposes the same comparator as the read view"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db (into (sorted-map) (map vector (range 5) (range 5))))
+      (swap! db
+             (fn [m]
+               (is (= (clojure.lang.MapEntry. 0 0) (nth m 0)))
+               (is (= 2 (key (nth m 2))))
+               (is (= ::nf (nth m 99 ::nf)))
+               (is (= [2 3 4] (map key (subseq m >= 2))))
+               (is (= [0 1] (map key (subseq m < 2))))
+               (is (= [4 3 2 1 0] (map key (rseq m))))
+               (is (instance? java.util.Comparator
+                              (.comparator ^clojure.lang.Sorted m)))
+               m))
+      (testing "the data is unchanged after read-only queries in the txn"
+        (is (= [0 1 2 3 4] (map key (seq @db))))))))
 
 (deftest tracer-bullet-ordered-seq
   (testing "a persisted sorted-map is stored as a sorted map and seqs in key order"

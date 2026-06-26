@@ -101,6 +101,37 @@
   (= (Integer/signum (compare a b))
      (Integer/signum (cmp-unsigned (sk/encode-key a) (sk/encode-key b)))))
 
+(deftest cross-type-numeric-order
+  (testing "longs and doubles interleave by numeric value, not by type tag"
+    (doseq [[a b] [[1 1.5] [1.5 2] [1 2.0] [2.0 3]
+                   [-1 -0.5] [-1.5 -1] [-1.0 0] [0 0.5]
+                   ;; magnitudes that exercise the gap between the two old tags
+                   [3 3.5] [-3.5 -3]
+                   ;; a long below and a double above zero and vice-versa
+                   [-2 1.0] [-1.5 2]]]
+      (is (neg? (cmp-unsigned (sk/encode-key a) (sk/encode-key b)))
+          (str a " < " b))
+      (is (pos? (cmp-unsigned (sk/encode-key b) (sk/encode-key a)))
+          (str b " > " a)))))
+
+(deftest prop-cross-type-numeric-order
+  (testing "for 4000 random long/double pairs of distinct value, byte order
+            agrees in sign with clojure.core/compare (the numeric order)"
+    (let [r        (java.util.Random. 77)
+          rand-num (fn [] (if (.nextBoolean r)
+                            (long (.nextInt r 2000000))           ;; small long
+                            (* (.nextDouble r) 1.0e6
+                               (if (.nextBoolean r) 1.0 -1.0))))] ;; small double
+      (is (every?
+            (fn [_]
+              (let [a (rand-num) b (rand-num)
+                    c (compare a b)]
+                (or (zero? c) ;; numerically equal (e.g. 1 vs 1.0): order is unspecified
+                    (= (Integer/signum c)
+                       (Integer/signum (cmp-unsigned (sk/encode-key a)
+                                                     (sk/encode-key b)))))))
+            (range 4000))))))
+
 (deftest prop-long-order
   (testing "for 2000 random long pairs, byte order == numeric order"
     (let [r (java.util.Random. 42)]
@@ -153,6 +184,18 @@
   (is (thrown? IllegalArgumentException (sk/encode-key nil)))
   (is (thrown? IllegalArgumentException (sk/encode-key true)))
   (is (thrown? IllegalArgumentException (sk/encode-key Double/NaN))))
+
+(deftest out-of-range-integer-key-throws-clearly
+  (testing "an integer key past the 64-bit long range is rejected eagerly with a
+            clear, key-specific message rather than a raw numeric-cast error"
+    (doseq [big [(.pow (java.math.BigInteger. "2") 100)
+                 (.negate (.pow (java.math.BigInteger. "2") 100))
+                 (bigint "99999999999999999999999")]]
+      (let [ex (is (thrown? IllegalArgumentException (sk/encode-key big)))]
+        (is (re-find #"(?i)key" (.getMessage ex))
+            "message should mention it is about a key")
+        (is (re-find #"(?i)long" (.getMessage ex))
+            "message should mention the long range")))))
 
 (deftest instant-roundtrip
   (testing "instants round-trip to Instant, preserving sub-second precision"

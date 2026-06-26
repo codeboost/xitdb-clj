@@ -38,12 +38,13 @@
   wsm)
 
 (defn smap-empty!
-  "Replaces contents with an empty sorted map, in place."
+  "Replaces contents with an empty sorted map, in place. Returns the
+  WriteSortedMap. Mirrors `operations/map-empty!`: writes a fresh empty
+  SORTED_MAP slot at the cursor so the value stays a sorted map (the
+  `key-comparator` makes `v->slot!` accept it as a default-ordered tree)."
   [^WriteSortedMap wsm]
   (let [^WriteCursor cursor (.-cursor wsm)]
-    (.write cursor nil)
-    ;; re-init an empty sorted map at the same cursor the wsm holds
-    (WriteSortedMap. cursor))
+    (.write cursor (conversion/v->slot! cursor (sorted-map-by sorted-key/key-comparator))))
   wsm)
 
 (defn smap-seq
@@ -155,11 +156,12 @@
   wss)
 
 (defn sset-empty!
-  "Replaces contents with an empty sorted set, in place."
+  "Replaces contents with an empty sorted set, in place. Returns the
+  WriteSortedSet. Mirrors `operations/set-empty!`: writes a fresh empty
+  SORTED_SET slot at the cursor so the value stays a sorted set."
   [^WriteSortedSet wss]
   (let [^WriteCursor cursor (.-cursor wss)]
-    (.write cursor nil)
-    (WriteSortedSet. cursor))
+    (.write cursor (conversion/v->slot! cursor (sorted-set-by sorted-key/key-comparator))))
   wss)
 
 (defn- member-from-cursor

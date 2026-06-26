@@ -174,6 +174,40 @@
   (seq [_]
     (sorted-ops/sset-seq wss))
 
+  ;; The same ordered read machinery as XITDBSortedSet, reading the
+  ;; in-transaction (uncommitted) state. `WriteSortedSet` is a `ReadSortedSet`
+  ;; subclass, so the rank/index-based ops apply directly to `wss`.
+  clojure.lang.Sorted
+  (comparator [_]
+    sorted-key/key-comparator)
+
+  (entryKey [_ entry]
+    entry)
+
+  (seq [_ ascending?]
+    (if ascending?
+      (sorted-ops/sset-seq wss)
+      (sorted-ops/sset-rseq wss)))
+
+  (seqFrom [_ member ascending?]
+    (if ascending?
+      (sorted-ops/sset-seq-from wss member)
+      (sorted-ops/sset-rseq wss (descending-start-index wss member))))
+
+  clojure.lang.Indexed
+  (nth [this i]
+    (let [e (.nth this i ::not-found)]
+      (if (identical? e ::not-found)
+        (throw (IndexOutOfBoundsException.))
+        e)))
+
+  (nth [_ i not-found]
+    (sorted-ops/sset-nth wss i not-found))
+
+  clojure.lang.Reversible
+  (rseq [_]
+    (sorted-ops/sset-rseq wss))
+
   clojure.lang.ILookup
   (valAt [this k]
     (.valAt this k nil))
