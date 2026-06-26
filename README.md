@@ -243,8 +243,8 @@ Note that this is not doing an expensive copy of the fruits vector. We are benef
 ### Architecture
 `xitdb-clj` builds on [xitdb-java](https://github.com/xit-vcs/xitdb-java) which implements:
 
-- **Hash Array Mapped Trie (HAMT)** - For HashMap/Set and ArrayList
-- **B-trees** - For SortedMap/Set and LinkedArrayList (ArrayList with efficient slice and concat)
+- **Hash Array Mapped Trie (HAMT)** - For hash map/set and vector
+- **B-trees** - For sorted map/set and linked list
 - **Structural Sharing** - Minimizes memory usage across versions
 - **Copy-on-Write** - Ensures immutability while maintaining performance
 
@@ -261,7 +261,7 @@ The Clojure wrapper adds:
 - **Vectors** - Array lists with indexed access
 - **Sets** - Hash sets with unique element storage
 - **Sorted sets** - On-disk B-tree sets with ordered iteration and ranking
-- **Lists** - Linked lists and RRB tree-based linked array lists
+- **Lists** - B-tree-based linked array lists
 - **Primitives** - Numbers, strings, keywords, booleans, dates.
 
 ## Performance Characteristics
