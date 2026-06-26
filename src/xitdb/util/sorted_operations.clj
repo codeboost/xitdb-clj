@@ -6,7 +6,7 @@
     [xitdb.util.conversion :as conversion]
     [xitdb.util.sorted-key :as sorted-key])
   (:import
-    [io.github.radarroark.xitdb ReadCursor WriteCursor ReadSortedMap WriteSortedMap ReadSortedSet WriteSortedSet]))
+    [io.github.radarroark.xitdb ReadCursor ReadCursor$KeyValuePairCursor WriteCursor ReadSortedMap WriteSortedMap ReadSortedSet WriteSortedSet]))
 
 (defn smap-item-count
   "O(1) entry count, delegating to the rank-augmented B-tree."
@@ -66,7 +66,7 @@
 (defn- kvpair->entry
   "Turns a Java KeyValuePair (with .-keyCursor/.-valueCursor) into a Clojure
   MapEntry (decoded key, read value)."
-  [kv read-from-cursor]
+  [^ReadCursor$KeyValuePairCursor kv read-from-cursor]
   (clojure.lang.MapEntry.
     (decode-key-cursor (.-keyCursor kv))
     (read-from-cursor (.-valueCursor kv))))
@@ -166,12 +166,12 @@
 
 (defn- member-from-cursor
   "Decodes the member from a set entry cursor (its key cursor)."
-  [cursor]
+  [^ReadCursor cursor]
   (decode-key-cursor (.-keyCursor (.readKeyValuePair cursor))))
 
 (defn- kvpair->member
   "Decodes the member from a Java KeyValuePair (its key cursor)."
-  [kv]
+  [^ReadCursor$KeyValuePairCursor kv]
   (decode-key-cursor (.-keyCursor kv)))
 
 (defn sset-seq

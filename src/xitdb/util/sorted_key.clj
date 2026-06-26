@@ -236,8 +236,8 @@
       (keyword nil (String. ba 2 (- (alength ba) 2) StandardCharsets/UTF_8))
       (let [sep (loop [i 2]
                   (if (zero? (aget ba i)) i (recur (inc i))))
-            ns  (String. ba 2 (- sep 2) StandardCharsets/UTF_8)
-            nm  (String. ba (inc sep) (- (alength ba) (inc sep)) StandardCharsets/UTF_8)]
+            ns  (String. ba (int 2) (int (- sep 2)) StandardCharsets/UTF_8)
+            nm  (String. ba (int (inc sep)) (int (- (alength ba) (inc sep))) StandardCharsets/UTF_8)]
         (keyword ns nm)))))
 
 (def key-comparator
