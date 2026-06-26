@@ -243,8 +243,8 @@ Note that this is not doing an expensive copy of the fruits vector. We are benef
 ### Architecture
 `xitdb-clj` builds on [xitdb-java](https://github.com/xit-vcs/xitdb-java) which implements:
 
-- **Hash Array Mapped Trie (HAMT)** - For efficient map and set operations
-- **RRB Trees** - For vector operations with good concatenation performance
+- **Hash Array Mapped Trie (HAMT)** - For HashMap/Set and ArrayList
+- **B-trees** - For SortedMap/Set and LinkedArrayList (ArrayList with efficient slice and concat)
 - **Structural Sharing** - Minimizes memory usage across versions
 - **Copy-on-Write** - Ensures immutability while maintaining performance
 
