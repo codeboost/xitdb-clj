@@ -220,7 +220,8 @@
 
     :else
     (throw (IllegalArgumentException.
-             (str "Unsupported sorted-map key type: " (type k))))))
+             (str "Unsupported sorted-map key type: "
+                  (if (nil? k) "nil" (type k)))))))
 
 (defn- ^String utf8-body [^bytes ba]
   (String. ba 1 (dec (alength ba)) StandardCharsets/UTF_8))

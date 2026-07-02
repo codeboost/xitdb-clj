@@ -17,24 +17,34 @@
   (sorted-key/decode-key (.readBytes key-cursor nil)))
 
 (defn smap-read-cursor
-  "Read cursor for `key`, or nil if absent."
+  "Read cursor for `key`, or nil if absent. nil (not storable as a sorted key)
+  is never present, so lookups with it return nil instead of throwing."
   [^ReadSortedMap rsm key]
-  (.getCursor rsm (sorted-key/encode-key key)))
+  (when (some? key)
+    (.getCursor rsm (sorted-key/encode-key key))))
 
 (defn smap-contains-key?
   [^ReadSortedMap rsm key]
   (some? (smap-read-cursor rsm key)))
 
+(defn smap-write-cursor
+  "Write cursor for `key`. Creates the key if it doesn't exist, so callers that
+  only want to read an existing entry must check `smap-read-cursor` first."
+  [^WriteSortedMap wsm key]
+  (.putCursor wsm (sorted-key/encode-key key)))
+
 (defn smap-assoc-value!
   "Encodes `k`, writes value `v` at its cursor. Returns the WriteSortedMap."
   [^WriteSortedMap wsm k v]
-  (let [value-cursor (.putCursor wsm (sorted-key/encode-key k))]
+  (let [value-cursor (smap-write-cursor wsm k)]
     (.write value-cursor (conversion/v->slot! value-cursor v))
     wsm))
 
 (defn smap-dissoc-key!
+  "Removing nil (never present) is a no-op, like Clojure's sorted-map."
   [^WriteSortedMap wsm k]
-  (.remove wsm (sorted-key/encode-key k))
+  (when (some? k)
+    (.remove wsm (sorted-key/encode-key k)))
   wsm)
 
 (defn smap-empty!
@@ -140,8 +150,11 @@
   (.count rss))
 
 (defn sset-contains?
+  "nil (not storable as a sorted member) is never present, so checking for it
+  returns false instead of throwing."
   [^ReadSortedSet rss member]
-  (.contains rss (sorted-key/encode-key member)))
+  (and (some? member)
+       (.contains rss (sorted-key/encode-key member))))
 
 (defn sset-assoc-value!
   "Adds `member` to the set (no-op if already present). Returns the WriteSortedSet."
@@ -150,9 +163,11 @@
   wss)
 
 (defn sset-disj-value!
-  "Removes `member` from the set (no-op if absent). Returns the WriteSortedSet."
+  "Removes `member` from the set (no-op if absent, including nil, which is
+  never present). Returns the WriteSortedSet."
   [^WriteSortedSet wss member]
-  (.remove wss (sorted-key/encode-key member))
+  (when (some? member)
+    (.remove wss (sorted-key/encode-key member)))
   wss)
 
 (defn sset-empty!
