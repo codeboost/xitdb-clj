@@ -14,11 +14,11 @@
   type on decode and establishes a total order across types, so heterogeneous
   keys never throw.
 
-  Supported key types: string, keyword, long, double, Instant and Date. Strings
-  encode as their UTF-8 bytes (already code-point ordered); keywords use a flag
-  + namespace + name layout so they sort like Clojure's default comparator (see
-  `keyword->bytes`); numeric/temporal keys use order-preserving big-endian
-  encodings."
+  Supported key types: string, keyword, boolean, char, long, double, UUID,
+  Instant and Date. Strings encode as their UTF-8 bytes (already code-point
+  ordered); keywords use a flag + namespace + name layout so they sort like
+  Clojure's default comparator (see `keyword->bytes`); numeric/temporal/UUID
+  keys use order-preserving big-endian encodings."
   (:import
     [java.io ByteArrayOutputStream]
     [java.nio ByteBuffer]
@@ -29,14 +29,18 @@
 ;; Type tags. Ordering of the tag values defines the cross-type order; they are
 ;; intentionally sparse to leave room for additional types in later slices.
 ;; Current cross-type order (by ascending tag byte):
-;;   number (0x10) < instant (0x18) < date (0x19) < string (0x20) < keyword (0x21)
+;;   boolean (0x08) < number (0x10) < instant (0x18) < date (0x19)
+;;   < char (0x1E) < string (0x20) < keyword (0x21) < uuid (0x28)
 ;; Longs and doubles share the single `tag-number` so they interleave by numeric
 ;; value (see `number-body`) instead of being split into two adjacent ranges.
+(def ^:const tag-boolean (int 0x08))
 (def ^:const tag-number  (int 0x10))
 (def ^:const tag-instant (int 0x18))
 (def ^:const tag-date    (int 0x19))
+(def ^:const tag-char    (int 0x1E))
 (def ^:const tag-string  (int 0x20))
 (def ^:const tag-keyword (int 0x21))
+(def ^:const tag-uuid    (int 0x28))
 
 ;; Numeric subtype byte (the body byte right after the 8-byte sort key).
 ;; `num-long` sorts before `num-double`, so a long and a double of equal numeric
@@ -186,6 +190,16 @@
   "Encodes Clojure key `k` to an order-preserving, reversible byte array."
   ^bytes [k]
   (cond
+    (boolean? k)
+    (tagged tag-boolean (byte-array [(if k (byte 1) (byte 0))]))
+
+    ;; A char is one unsigned 16-bit UTF-16 code unit, so 2 big-endian bytes
+    ;; already sort in Clojure's (numeric) char order.
+    (char? k)
+    (let [c (int (.charValue ^Character k))]
+      (tagged tag-char (byte-array [(byte (unchecked-byte (bit-shift-right c 8)))
+                                    (byte (unchecked-byte (bit-and c 0xff)))])))
+
     (string? k)
     (tagged tag-string (utf8 k))
 
@@ -212,11 +226,31 @@
       (tagged tag-number
               (number-body num-double (double->bytes d) (double->bytes d))))
 
+    ;; UUID.compareTo (which clojure.core/compare delegates to) compares the
+    ;; two internal longs as SIGNED values, so each half gets the same
+    ;; sign-bit flip as long keys — NOT raw RFC-4122 byte order.
+    (instance? java.util.UUID k)
+    (let [^java.util.UUID u k
+          out (ByteArrayOutputStream. 16)
+          msb ^bytes (long->bytes (.getMostSignificantBits u))
+          lsb ^bytes (long->bytes (.getLeastSignificantBits u))]
+      (.write out msb 0 8)
+      (.write out lsb 0 8)
+      (tagged tag-uuid (.toByteArray out)))
+
     (instance? Instant k)
     (tagged tag-instant (instant->bytes k))
 
+    ;; Exact java.util.Date only: subclasses like java.sql.Timestamp carry
+    ;; sub-millisecond precision that the epoch-millis encoding would silently
+    ;; drop, and would decode back as a plain Date anyway.
     (instance? Date k)
-    (tagged tag-date (date->bytes k))
+    (if (= Date (class k))
+      (tagged tag-date (date->bytes k))
+      (throw (IllegalArgumentException.
+               (str "Unsupported sorted-map key type: " (type k)
+                    ". java.util.Date subclasses can silently lose precision; "
+                    "convert the key to a java.time.Instant instead."))))
 
     :else
     (throw (IllegalArgumentException.
@@ -255,9 +289,13 @@
   [^bytes ba]
   (let [tag (bit-and (int (aget ba 0)) 0xff)]
     (condp = tag
+      tag-boolean (= 1 (aget ba 1))
+      tag-char    (char (bit-or (bit-shift-left (bit-and (int (aget ba 1)) 0xff) 8)
+                                (bit-and (int (aget ba 2)) 0xff)))
       tag-string  (utf8-body ba)
       tag-keyword (decode-keyword ba)
       tag-number  (decode-number ba)
       tag-instant (bytes->instant ba 1)
       tag-date    (bytes->date ba 1)
+      tag-uuid    (java.util.UUID. (bytes->long ba 1) (bytes->long ba 9))
       (throw (IllegalArgumentException. (str "Unknown sorted-key tag: " tag))))))

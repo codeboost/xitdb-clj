@@ -257,3 +257,26 @@
       ;; Update non-nil to nil
       (swap! db assoc-in [:users 1 :name] nil)
       (is (nil? (get-in @db [:users 1 :name]))))))
+
+(deftest UUIDValuesAndKeys
+  (testing "UUIDs round-trip as map values, vector elements and hash-map keys"
+    (with-open [db (xdb/xit-db :memory)]
+      (let [u #uuid "123e4567-e89b-12d3-a456-426614174000"]
+        (reset! db {:id u :ids [u]})
+        (is (= u (:id @db)))
+        (is (instance? java.util.UUID (:id @db)))
+        (is (= [u] (tu/materialize (:ids @db))))
+        (reset! db {u :by-uuid-key})
+        (is (= :by-uuid-key (get @db u)))
+        (is (= u (-> @db seq first key)))))))
+
+(deftest CharValuesAndKeys
+  (testing "chars round-trip as map values, vector elements and hash-map keys"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db {:grade \A :letters [\x \字]})
+      (is (= \A (:grade @db)))
+      (is (instance? Character (:grade @db)))
+      (is (= [\x \字] (tu/materialize (:letters @db))))
+      (reset! db {\a :by-char-key})
+      (is (= :by-char-key (get @db \a)))
+      (is (= \a (-> @db seq first key))))))

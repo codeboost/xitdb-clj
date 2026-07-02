@@ -136,13 +136,15 @@ all work and read only what they touch from disk:
 (rseq @db)            ;; => lazy descending seq of entries
 ```
 
-Supported key/member types are strings, keywords, longs, doubles, `Instant`
-and `Date`. They are stored with an order-preserving codec, so they iterate in
-natural order — numeric for numbers, chronological for temporals, lexicographic
-(by code point) for strings. Longs and doubles share a single numeric ordering,
-so they interleave by value (e.g. `1 < 1.5 < 2`). Only the default ordering is
+Supported key/member types are strings, keywords, booleans, chars, longs,
+doubles, `UUID`, `Instant` and `Date`. They are stored with an order-preserving
+codec, so they iterate in natural order — numeric for numbers, chronological
+for temporals, lexicographic (by code point) for strings, `UUID.compareTo`
+order for UUIDs. Longs and doubles share a single numeric ordering, so they
+interleave by value (e.g. `1 < 1.5 < 2`). Only the default ordering is
 supported: `sorted-map-by` / `sorted-set-by` with a custom comparator is
-rejected.
+rejected, as are `java.util.Date` subclasses like `java.sql.Timestamp` (use
+`Instant` instead).
 
 ### Ranking & pagination
 

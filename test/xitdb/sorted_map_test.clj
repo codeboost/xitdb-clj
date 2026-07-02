@@ -414,3 +414,28 @@
     (reset! db (sorted-map "a" 1))
     (is (thrown-with-msg? IllegalArgumentException #"nil"
                           (swap! db assoc nil 1)))))
+
+(deftest boolean-keys-round-trip-in-order
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db (sorted-map true :t false :f))
+    (is (= [[false :f] [true :t]] (map (juxt key val) (seq @db))))
+    (is (= :t (get @db true)))
+    (is (= :f (get @db false)))))
+
+(deftest uuid-and-char-keys-round-trip-in-compareTo-order
+  (testing "UUID keys iterate in UUID.compareTo order and round-trip"
+    (with-open [db (xdb/xit-db :memory)]
+      (let [us [#uuid "80000000-0000-0000-0000-000000000000"
+                #uuid "00000000-0000-0000-0000-000000000001"
+                #uuid "ffffffff-0000-0000-0000-000000000000"
+                #uuid "123e4567-e89b-12d3-a456-426614174000"]
+            oracle (into (sorted-map) (map vector us (range)))]
+        (reset! db oracle)
+        (is (= (keys oracle) (map key (seq @db))))
+        (is (every? #(instance? java.util.UUID %) (map key (seq @db))))
+        (is (= (get oracle (first us)) (get @db (first us)))))))
+  (testing "char keys iterate in char order and round-trip"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db (sorted-map \c 3 \a 1 \B 2))
+      (is (= [\B \a \c] (map key (seq @db))))
+      (is (= 1 (get @db \a))))))

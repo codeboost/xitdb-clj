@@ -35,6 +35,8 @@
     (keyword? v) :keyword
     (boolean? v) :boolean
     (integer? v) :key-integer
+    (char? v) :char
+    (instance? java.util.UUID v) :uuid
     (instance? java.time.Instant v) :inst
     (instance? java.util.Date v) :date
     (coll? v) :coll
@@ -45,6 +47,8 @@
   {:keyword     "kw"
    :boolean     "bl"
    :key-integer "ki"
+   :char        "ch"
+   :uuid        "uu"
    :inst        "in"
    :date        "da"
    :coll        "co"
@@ -123,6 +127,12 @@
 
     (double? v)
     (Database$Float. v)
+
+    (char? v)
+    (database-bytes (str v) (fmt-tag-value :char))
+
+    (instance? java.util.UUID v)
+    (database-bytes (str v) (fmt-tag-value :uuid))
 
     (instance? java.time.Instant v)
     (database-bytes (str v) (fmt-tag-value :inst))
@@ -352,6 +362,12 @@
 
       (= fmt-tag (fmt-tag-value :key-integer))
       (Integer/parseInt str)
+
+      (= fmt-tag (fmt-tag-value :char))
+      (.charAt str 0)
+
+      (= fmt-tag (fmt-tag-value :uuid))
+      (java.util.UUID/fromString str)
 
       (= fmt-tag (fmt-tag-value :inst))
       (java.time.Instant/parse str)
