@@ -174,15 +174,16 @@
 
 (deftest cross-type-never-throws
   (testing "encoding any supported type and comparing across types never throws"
-    (let [vals [0 -1 Long/MAX_VALUE 3.14 -2.0 "abc" :kw
-                (Instant/ofEpochSecond 5) (Date. 1000)]
+    (let [vals [true false 0 -1 Long/MAX_VALUE 3.14 -2.0 \a "abc" :kw
+                (Instant/ofEpochSecond 5) (Date. 1000)
+                #uuid "123e4567-e89b-12d3-a456-426614174000"]
           encoded (map sk/encode-key vals)]
       (doseq [a encoded b encoded]
         (is (integer? (cmp-unsigned a b)))))))
 
 (deftest unsupported-key-throws
   (is (thrown? IllegalArgumentException (sk/encode-key nil)))
-  (is (thrown? IllegalArgumentException (sk/encode-key true)))
+  (is (thrown? IllegalArgumentException (sk/encode-key 'a-symbol)))
   (is (thrown? IllegalArgumentException (sk/encode-key Double/NaN))))
 
 (deftest out-of-range-integer-key-throws-clearly
@@ -215,3 +216,64 @@
                    [(Instant/ofEpochSecond 10 999999999) (Instant/ofEpochSecond 11 0)]]]
       (is (neg? (cmp-unsigned (sk/encode-key a) (sk/encode-key b)))
           (str a " < " b)))))
+
+(deftest boolean-roundtrip-and-order
+  (testing "booleans round-trip and false sorts before true, like compare"
+    (is (= true (sk/decode-key (sk/encode-key true))))
+    (is (= false (sk/decode-key (sk/encode-key false))))
+    (is (neg? (cmp-unsigned (sk/encode-key false) (sk/encode-key true))))
+    (is (= (Integer/signum (compare false true))
+           (Integer/signum (cmp-unsigned (sk/encode-key false) (sk/encode-key true))))))
+  (testing "booleans sort before all numbers in the cross-type order"
+    (is (neg? (cmp-unsigned (sk/encode-key true) (sk/encode-key Long/MIN_VALUE))))))
+
+(deftest char-roundtrip-and-order
+  (testing "chars round-trip as Character"
+    (doseq [c [\a \Z \0 \space (char 0) (char 0xFFFF) \é \字]]
+      (is (= c (sk/decode-key (sk/encode-key c))) (str "roundtrip " (pr-str c)))
+      (is (instance? Character (sk/decode-key (sk/encode-key c))))))
+  (testing "byte order matches clojure.core/compare on chars"
+    (doseq [[a b] [[\a \b] [\A \a] [(char 0) \a] [\z (char 0xFFFF)] [\0 \9]]]
+      (is (= (Integer/signum (compare a b))
+             (Integer/signum (cmp-unsigned (sk/encode-key a) (sk/encode-key b))))
+          (str "order-agrees " (pr-str a) " " (pr-str b))))))
+
+(deftest uuid-roundtrip-and-order
+  (testing "UUIDs round-trip as java.util.UUID"
+    (doseq [u [#uuid "00000000-0000-0000-0000-000000000000"
+               #uuid "ffffffff-ffff-ffff-ffff-ffffffffffff"
+               (java.util.UUID/fromString "123e4567-e89b-12d3-a456-426614174000")]]
+      (is (= u (sk/decode-key (sk/encode-key u))) (str "roundtrip " u))
+      (is (instance? java.util.UUID (sk/decode-key (sk/encode-key u))))))
+  (testing "byte order matches UUID.compareTo (signed longs — the Java wart),
+            which is what clojure.core/compare uses"
+    (doseq [[a b] [;; msb sign bit set compares LESS under signed comparison
+                   [#uuid "80000000-0000-0000-0000-000000000000"
+                    #uuid "00000000-0000-0000-0000-000000000001"]
+                   ;; lsb sign bit set compares LESS when msbs are equal
+                   [#uuid "00000000-0000-0000-8000-000000000000"
+                    #uuid "00000000-0000-0000-0000-000000000001"]
+                   ;; plain ascending
+                   [#uuid "00000000-0000-0000-0000-000000000001"
+                    #uuid "00000000-0000-0000-0000-000000000002"]]]
+      (is (neg? (compare a b)) (str "oracle sanity " a " < " b))
+      (is (neg? (cmp-unsigned (sk/encode-key a) (sk/encode-key b)))
+          (str a " < " b)))))
+
+(deftest prop-uuid-order
+  (testing "for 2000 random UUID pairs, byte order == UUID.compareTo order"
+    (let [r (java.util.Random. 46)
+          rand-u (fn [] (java.util.UUID. (.nextLong r) (.nextLong r)))]
+      (is (every? (fn [_] (order-agrees? (rand-u) (rand-u)))
+                  (range 2000))))))
+
+(deftest date-subclass-keys-rejected
+  (testing "java.util.Date subclasses would silently lose precision (e.g.
+            java.sql.Timestamp nanos), so they are rejected with a pointer
+            to Instant; exact java.util.Date still works"
+    (let [ex (is (thrown? IllegalArgumentException
+                          (sk/encode-key (java.sql.Timestamp. 1000))))]
+      (is (re-find #"Instant" (.getMessage ex))))
+    (is (thrown? IllegalArgumentException
+                 (sk/encode-key (java.sql.Date. 1000))))
+    (is (= (Date. 1000) (sk/decode-key (sk/encode-key (Date. 1000)))))))
