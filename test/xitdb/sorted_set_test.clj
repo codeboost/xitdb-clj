@@ -270,3 +270,25 @@
       (is (instance? xitdb.sorted_set.XITDBSortedSet @db))
       (is (sorted? @db))
       (is (= [1 3 5] (seq @db))))))
+
+(deftest nil-member-lookups-return-not-found
+  (testing "on the read view, like Clojure's sorted-set (nil is never present)"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db (sorted-set 1 2))
+      (let [s @db]
+        (is (false? (contains? s nil)))
+        (is (nil? (get s nil)))
+        (is (= ::nf (get s nil ::nf))))))
+  (testing "on the write view inside a transaction"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db (sorted-set 1 2))
+      (swap! db (fn [s]
+                  (is (false? (contains? s nil)))
+                  (is (= ::nf (get s nil ::nf)))
+                  s)))))
+
+(deftest disj-nil-member-is-a-no-op
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db (sorted-set 1 2))
+    (swap! db disj nil)
+    (is (= [1 2] (seq @db)))))

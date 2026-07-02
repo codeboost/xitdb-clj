@@ -208,10 +208,13 @@
     (.valAt this key nil))
 
   (valAt [this key not-found]
+    ;; Read through a write cursor (like XITDBWriteHashMap) so nested
+    ;; collections come back as writable views; the read-cursor probe keeps
+    ;; `putCursor` from creating absent keys.
     (let [cursor (sorted-ops/smap-read-cursor wsm key)]
       (if (nil? cursor)
         not-found
-        (common/-read-from-cursor cursor))))
+        (common/-read-from-cursor (sorted-ops/smap-write-cursor wsm key)))))
 
   clojure.lang.Seqable
   (seq [_]

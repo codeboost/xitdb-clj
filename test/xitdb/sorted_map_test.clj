@@ -348,3 +348,69 @@
       (let [ks (map #(format "k%04d" %) (shuffle (range 50)))]
         (reset! db (into (sorted-map) (map vector ks (range))))
         (is (= (sort ks) (map key (seq @db))))))))
+
+(deftest nested-values-fetched-in-txn-are-writable
+  (testing "in-place mutation of a nested map fetched via get persists,
+            matching the write-hash-map behaviour"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db (sorted-map "inner" {:x 1}))
+      (swap! db (fn [m]
+                  (assoc (get m "inner") :y 2)
+                  m))
+      (is (= {:x 1 :y 2} (tu/materialize (get @db "inner")))))))
+
+(deftest txn-lookup-of-absent-key-does-not-create-it
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db (sorted-map "a" 1))
+    (swap! db (fn [m]
+                (is (= ::nf (get m "missing" ::nf)))
+                (is (nil? (get m "missing")))
+                m))
+    (is (= 1 (count @db)))
+    (is (= ["a"] (map key (seq @db))))))
+
+(deftest nested-sorted-collections-fetched-in-txn-are-writable
+  (testing "a sorted map nested in a sorted map mutates in place via get"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db (sorted-map "inner" (sorted-map 1 :a)))
+      (swap! db (fn [m]
+                  (assoc (get m "inner") 0 :z)
+                  m))
+      (is (= [[0 :z] [1 :a]] (map (juxt key val) (seq (get @db "inner")))))))
+  (testing "a sorted set nested in a sorted map mutates in place via get"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db (sorted-map "tags" (sorted-set 2 3)))
+      (swap! db (fn [m]
+                  (conj (get m "tags") 1)
+                  m))
+      (is (= [1 2 3] (seq (get @db "tags")))))))
+
+(deftest nil-key-lookups-return-not-found
+  (testing "on the read view, like Clojure's sorted-map (nil is never present)"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db (sorted-map "a" 1))
+      (let [m @db]
+        (is (nil? (get m nil)))
+        (is (= ::nf (get m nil ::nf)))
+        (is (false? (contains? m nil)))
+        (is (nil? (find m nil))))))
+  (testing "on the write view inside a transaction"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db (sorted-map "a" 1))
+      (swap! db (fn [m]
+                  (is (= ::nf (get m nil ::nf)))
+                  (is (false? (contains? m nil)))
+                  (is (nil? (find m nil)))
+                  m)))))
+
+(deftest dissoc-nil-key-is-a-no-op
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db (sorted-map "a" 1))
+    (swap! db dissoc nil)
+    (is (= [["a" 1]] (map (juxt key val) (seq @db))))))
+
+(deftest storing-nil-key-throws-with-clear-message
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db (sorted-map "a" 1))
+    (is (thrown-with-msg? IllegalArgumentException #"nil"
+                          (swap! db assoc nil 1)))))
