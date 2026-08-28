@@ -5,9 +5,11 @@
     [xitdb.xitdb-types :as xtypes])
   (:import
     [io.github.radarroark.xitdb
-     CoreBufferedFile CoreFile CoreMemory Database Database$ContextFunction Hasher
+     Core CoreBufferedFile CoreMemory Database Database$ContextFunction Hasher
      RandomAccessBufferedFile RandomAccessMemory ReadArrayList WriteArrayList WriteCursor]
-    [java.io File RandomAccessFile]
+    [java.io File]
+    [java.nio.file Files]
+    [java.nio.file.attribute FileAttribute]
     [java.security MessageDigest]
     [java.util.concurrent.locks ReentrantLock]))
 
@@ -112,9 +114,7 @@
 (defn- close-db-internal!
   "Closes the db file. Does nothing if it's a memory db"
   [^Database db]
-  (let [core (-> db .-core)]
-    (when (instance? CoreFile core)
-      (.close ^RandomAccessFile (-> db .-core .file)))))
+  (.close ^Core (.-core db)))
 
 
 (defn ^ReadArrayList read-history
@@ -173,6 +173,18 @@
   (swap [this f x y args]
     (apply xitdb-swap-with-lock! (concat [this nil f x y] args))))
 
+(defn- wrap-db [filename ^Database rwdb]
+  (if (= :memory filename)
+    (let [tdbmem (proxy [ThreadLocal] []
+                   (initialValue []
+                     rwdb))]
+      (->XITDBDatabase tdbmem rwdb (ReentrantLock.)))
+
+    (let [tldb (proxy [ThreadLocal] []
+                 (initialValue []
+                   (open-database filename "r")))]
+      (->XITDBDatabase tldb rwdb (ReentrantLock.)))))
+
 (defn xit-db
   "Returns a new XITDBDatabase which can be used to query and transact data.
   `filename` can be `:memory` or the name of a file on the filesystem.
@@ -180,18 +192,49 @@
   The returned database handle can be used from multiple threads.
   Reads can run in parallel, transactions (eg. `swap!`) will only allow one writer at a time."
   [filename]
-  (if (= :memory filename)
-    (let [memdb  (open-database :memory "rw")
-          tdbmem (proxy [ThreadLocal] []
-                   (initialValue []
-                     memdb))]
-      (->XITDBDatabase tdbmem memdb (ReentrantLock.)))
+  (wrap-db filename (open-database filename "rw")))
 
-    (let [tldb (proxy [ThreadLocal] []
-                 (initialValue []
-                   (open-database filename "r")))
-          rwdb (open-database filename "rw")]
-      (->XITDBDatabase tldb rwdb (ReentrantLock.)))))
+(defn- create-compact-target [filename]
+  (if (= :memory filename)
+    {:core (CoreMemory. (RandomAccessMemory.))}
+    (let [file (File. ^String filename)]
+      (Files/createFile (.toPath file) (make-array FileAttribute 0))
+      (try
+        {:core (CoreBufferedFile. (RandomAccessBufferedFile. file "rw"))
+         :file file}
+        (catch Throwable t
+          (Files/deleteIfExists (.toPath file))
+          (throw t))))))
+
+(defn compact
+  "Compacts the latest value of `xdb` into a new database at `target`.
+  `target` can be `:memory` or the name of a file that does not exist.
+  Returns an open XITDBDatabase containing at most one history entry. The source
+  database is unchanged."
+  [^XITDBDatabase xdb target]
+  (let [^ReentrantLock lock (.-lock xdb)]
+    (when (.isHeldByCurrentThread lock)
+      (throw (IllegalStateException. "compact should not be called from swap! or reset!")))
+    (try
+      (.lock lock)
+      (let [target-info (create-compact-target target)
+            ^Core target-core (:core target-info)]
+        (try
+              (wrap-db target (.compact ^Database (.-rwdb xdb) target-core))
+              (catch Throwable t
+                ;; Clean up the target without hiding the original error
+                (try
+                  (.close target-core)
+                  (catch Throwable close-error
+                    (.addSuppressed ^Throwable t close-error)))
+                (when-let [^File file (:file target-info)]
+                  (try
+                    (Files/deleteIfExists (.toPath file))
+                    (catch Throwable delete-error
+                      (.addSuppressed ^Throwable t delete-error))))
+                (throw t))))
+      (finally
+        (.unlock lock)))))
 
 
 (deftype XITDBCursor [xdb keypath]
@@ -243,4 +286,3 @@
             (str "freeze! requires a writeable XITDB data structure, got: " (type x)))))
   (-> x common/-unwrap .cursor .db .freeze)
   (common/-read-only x))
-

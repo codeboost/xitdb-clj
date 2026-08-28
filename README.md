@@ -206,6 +206,17 @@ values of the database, by setting the `*return-history?*` binding to `true`.
     (println "new value:" new-value)))
 ```
 
+## Compaction
+
+Normally, an immutable database grows forever, because old data is never deleted. To reclaim disk space and clear the history, xitdb supports compaction. This involves completely rebuilding the database file to only contain the data accessible from the latest copy (i.e., "moment") of the database.
+
+```clojure
+(with-open [compacted (xdb/compact db "compacted.xdb")]
+  (println (xdb/materialize @compacted)))
+```
+
+The `compact` function takes either a file name or `:memory` and returns a new database rather than modifying the existing one. A file target must not already exist, because in-place compaction is not supported. If you want to delete the original database and replace it with the compacted one, you'll need to do that yourself.
+
 ## Freezing
 
 One important distinction from the Clojure atom is that inside a transaction (eg. a `swap!`), the data is temporarily mutable. This is exactly like Clojure's transients, and it is a very important optimization. However, this can lead to a surprising behavior:
