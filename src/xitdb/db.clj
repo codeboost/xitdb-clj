@@ -25,11 +25,14 @@
   If `filename` is `:memory`, returns a memory based db.
   open-mode can be `r` or `rw`."
   [filename ^String open-mode]
-  (let [core   (if (= filename :memory)
-                 (CoreMemory. (RandomAccessMemory.))
-                 (CoreBufferedFile. (RandomAccessBufferedFile. (File. ^String filename) open-mode)))
-        hasher (Hasher. (MessageDigest/getInstance "SHA-1"))]
-    (Database. core hasher)))
+  (let [^Core core (if (= filename :memory)
+                     (CoreMemory. (RandomAccessMemory.))
+                     (CoreBufferedFile. (RandomAccessBufferedFile. (File. ^String filename) open-mode)))]
+    (try
+      (Database. core (Hasher. (MessageDigest/getInstance "SHA-1")))
+      (catch Throwable t
+        (.close core)
+        (throw t)))))
 
 
 (defn ^WriteArrayList db-history [^Database db]
