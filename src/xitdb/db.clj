@@ -223,19 +223,24 @@
       (let [target-info (create-compact-target target)
             ^Core target-core (:core target-info)]
         (try
-              (wrap-db target (.compact ^Database (.-rwdb xdb) target-core))
-              (catch Throwable t
-                ;; Clean up the target without hiding the original error
-                (try
-                  (.close target-core)
-                  (catch Throwable close-error
-                    (.addSuppressed ^Throwable t close-error)))
-                (when-let [^File file (:file target-info)]
-                  (try
-                    (Files/deleteIfExists (.toPath file))
-                    (catch Throwable delete-error
-                      (.addSuppressed ^Throwable t delete-error))))
-                (throw t))))
+          (let [compacted (.compact ^Database (.-rwdb xdb) target-core)]
+            ;; xitdb 0.34.0 shares the source's mutable digest with the copy.
+            ;; These handles have independent locks, so their digests must too.
+            (set! (.-md compacted)
+                  (MessageDigest/getInstance (.getAlgorithm (.-md compacted))))
+            (wrap-db target compacted))
+          (catch Throwable t
+            ;; Clean up the target without hiding the original error
+            (try
+              (.close target-core)
+              (catch Throwable close-error
+                (.addSuppressed ^Throwable t close-error)))
+            (when-let [^File file (:file target-info)]
+              (try
+                (Files/deleteIfExists (.toPath file))
+                (catch Throwable delete-error
+                  (.addSuppressed ^Throwable t delete-error))))
+            (throw t))))
       (finally
         (.unlock lock)))))
 
