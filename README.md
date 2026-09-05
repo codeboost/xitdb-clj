@@ -217,6 +217,8 @@ Normally, an immutable database grows forever, because old data is never deleted
 
 The `compact` function takes either a file name or `:memory` and returns a new database rather than modifying the existing one. A file target must not already exist, because in-place compaction is not supported. If you want to delete the original database and replace it with the compacted one, you'll need to do that yourself.
 
+Compaction holds the source database's write lock for the duration of the copy: reads continue, but any `swap!` or `reset!` on the source will block until compaction finishes. For the same reason, `compact` must not be called from inside a `swap!` or `reset!` on the database being compacted; it throws an `IllegalStateException` if it is.
+
 ## Freezing
 
 One important distinction from the Clojure atom is that inside a transaction (eg. a `swap!`), the data is temporarily mutable. This is exactly like Clojure's transients, and it is a very important optimization. However, this can lead to a surprising behavior:

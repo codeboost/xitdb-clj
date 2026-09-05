@@ -115,7 +115,8 @@
         (.unlock lock)))))
 
 (defn- close-db-internal!
-  "Closes the db file. Does nothing if it's a memory db"
+  "Closes the underlying core of `db` (the file handle for file databases,
+  the in-memory buffer for memory databases)."
   [^Database db]
   (.close ^Core (.-core db)))
 
@@ -213,7 +214,11 @@
   "Compacts the latest value of `xdb` into a new database at `target`.
   `target` can be `:memory` or the name of a file that does not exist.
   Returns an open XITDBDatabase containing at most one history entry. The source
-  database is unchanged."
+  database is unchanged.
+
+  Holds the source's write lock for the whole copy, so `swap!` and `reset!` on
+  `xdb` block until compaction finishes. Must not be called from inside a
+  `swap!` or `reset!` on `xdb`; doing so throws IllegalStateException."
   [^XITDBDatabase xdb target]
   (let [^ReentrantLock lock (.-lock xdb)]
     (when (.isHeldByCurrentThread lock)

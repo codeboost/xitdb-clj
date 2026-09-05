@@ -511,3 +511,18 @@
       ;; Verify history works
       (swap! db2 assoc :added "new")
       (is (= (tu/materialize @db1) (tu/materialize (xdb/deref-at db2 0)))))))
+
+(deftest open-database-closes-core-on-failure-test
+  ;; A file with a corrupt header opens fine as a Core but makes the Database
+  ;; constructor throw. The file handle must not leak when that happens.
+  (let [os (java.lang.management.ManagementFactory/getOperatingSystemMXBean)]
+    (when (instance? com.sun.management.UnixOperatingSystemMXBean os)
+      (let [file (java.io.File/createTempFile "xitdb-corrupt" ".xdb")
+            fds  #(.getOpenFileDescriptorCount ^com.sun.management.UnixOperatingSystemMXBean os)]
+        (try
+          (spit file "this is not a valid xitdb header")
+          (let [before (fds)]
+            (is (thrown? Throwable (xdb/open-database (.getPath file) "rw")))
+            (is (= before (fds))))
+          (finally
+            (.delete file)))))))
