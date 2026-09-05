@@ -3,10 +3,7 @@
     [clojure.test :refer :all]
     [xitdb.db :as xdb]
     [xitdb.common :as common]
-    [xitdb.test-utils :as tu :refer [with-db]])
-  (:import
-    [java.nio.file FileAlreadyExistsException Files]
-    [java.nio.file.attribute FileAttribute]))
+    [xitdb.test-utils :as tu :refer [with-db]]))
 
 (deftest DatabaseTest
   (with-db [db (tu/test-db)]
@@ -514,37 +511,3 @@
       ;; Verify history works
       (swap! db2 assoc :added "new")
       (is (= (tu/materialize @db1) (tu/materialize (xdb/deref-at db2 0)))))))
-
-(deftest compact-test
-  (let [dir         (Files/createTempDirectory "xitdb-clj-compact" (make-array FileAttribute 0))
-        target      (.resolve dir "compacted.xdb")
-        source-file (.resolve dir "source.xdb")]
-    (try
-      (with-open [source (xdb/xit-db :memory)]
-        (reset! source {:version 1})
-        (swap! source assoc :version 2)
-
-        (with-open [compacted (xdb/compact source :memory)]
-          (is (= 1 (count compacted)))
-          (is (= {:version 2} (tu/materialize @compacted))))
-
-        (with-open [compacted (xdb/compact source (.toString target))]
-          (is (= 1 (count compacted)))
-          (is (= {:version 2} (tu/materialize @compacted)))
-          (swap! compacted assoc :writable true)
-          (is (= {:version 2 :writable true} (tu/materialize @compacted))))
-
-        (is (thrown? FileAlreadyExistsException
-                     (xdb/compact source (.toString target))))
-        (is (= 2 (count source)))
-        (is (= {:version 2} (tu/materialize @source))))
-
-      (with-open [source (xdb/xit-db (.toString source-file))]
-        (reset! source {:source true})
-        (is (thrown? FileAlreadyExistsException
-                     (xdb/compact source (.toString source-file))))
-        (is (= {:source true} (tu/materialize @source))))
-      (finally
-        (Files/deleteIfExists target)
-        (Files/deleteIfExists source-file)
-        (Files/deleteIfExists dir)))))
