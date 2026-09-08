@@ -12,7 +12,7 @@
     [java.nio.file Files]
     [java.nio.file.attribute FileAttribute]
     [java.security MessageDigest]
-    [java.util.concurrent ConcurrentHashMap]
+    [java.util WeakHashMap]
     [java.util.concurrent.locks ReentrantLock]))
 
 ;; When set to true,
@@ -178,23 +178,22 @@
   handle private to the calling thread. A buffered file handle keeps a position
   and a write buffer, so one handle cannot serve two threads; giving each thread
   its own handle behind a single Core lets one reader `Database` be shared by
-  every thread. Closing the Core closes every thread's handle; a thread that
-  first touches the Core after close gets an IllegalStateException, and a
-  handle opened while close was running is closed by its own thread rather
-  than left behind."
+  every thread. Handles are tracked weakly so terminated threads' handles can
+  be collected and their file descriptors released while the database is open.
+  Closing the Core closes every remaining handle. Registration and close share
+  a lock so a newly opened handle cannot escape cleanup; a thread that first
+  touches the Core after close gets an IllegalStateException."
   [^String filename]
   (let [closed? (atom false)
-        handles (ConcurrentHashMap/newKeySet)
+        handles (WeakHashMap.)
         tl      (proxy [ThreadLocal] []
                   (initialValue []
-                    (when @closed?
-                      (throw (IllegalStateException. "Database is closed")))
-                    (let [core (CoreBufferedFile. (RandomAccessBufferedFile. (File. filename) "r"))]
-                      (.add handles core)
+                    (locking handles
                       (when @closed?
-                        (.close core)
                         (throw (IllegalStateException. "Database is closed")))
-                      core)))
+                      (let [core (CoreBufferedFile. (RandomAccessBufferedFile. (File. filename) "r"))]
+                        (.put handles core true)
+                        core))))
         current (fn ^Core [] (.get ^ThreadLocal tl))]
     (reify Core
       (reader [_] (.reader (current)))
@@ -206,10 +205,11 @@
       (flush [_] (.flush (current)))
       (sync [_] (.sync (current)))
       (close [_]
-        (reset! closed? true)
-        (doseq [^Core core handles]
-          (.close core))
-        (.clear handles)))))
+        (locking handles
+          (reset! closed? true)
+          (doseq [^Core core (.keySet handles)]
+            (.close core))
+          (.clear handles))))))
 
 (defn- wrap-db
   "Wraps writer handle `rwdb` into an XITDBDatabase, opening its reader handle.

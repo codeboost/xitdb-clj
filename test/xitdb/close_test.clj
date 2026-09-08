@@ -18,8 +18,42 @@
   (let [result (promise)
         thread (Thread. (fn [] (deliver result (try (f) (catch Throwable t t)))))]
     (.start thread)
-    (.join thread)
+    (.join thread 5000)
+    (when (.isAlive thread)
+      (.interrupt thread)
+      (throw (ex-info "Reader thread did not finish" {})))
     @result))
+
+(defn- collected-within?
+  "Requests collection until `pred` holds, allowing time for file cleaners."
+  [pred]
+  (let [deadline (+ (System/nanoTime) 5000000000)]
+    (loop []
+      (System/gc)
+      (Thread/sleep 50)
+      (cond
+        (pred) true
+        (< (System/nanoTime) deadline) (recur)
+        :else false))))
+
+(deftest terminated-reader-threads-do-not-retain-file-handles
+  (let [os (java.lang.management.ManagementFactory/getOperatingSystemMXBean)]
+    (when (instance? com.sun.management.UnixOperatingSystemMXBean os)
+      (let [file (temp-db-file)
+            fds #(.getOpenFileDescriptorCount ^com.sun.management.UnixOperatingSystemMXBean os)]
+        (try
+          (with-open [db (xdb/xit-db file)]
+            (reset! db {:a 1})
+            ;; Clear handles left for collection by earlier tests before measuring.
+            (collected-within? (constantly true))
+            (let [before (fds)]
+              (dotimes [_ 32]
+                (is (= 1 (on-new-thread #(get @db :a)))))
+              (is (collected-within? #(<= (fds) before))
+                  "terminated threads' descriptors are reclaimed while the database stays open")
+              (is (= 1 (get @db :a)) "the live reader is still usable")))
+          (finally
+            (.delete (java.io.File. file))))))))
 
 (deftest close-releases-reader-handles-of-other-threads
   (let [file (temp-db-file)
