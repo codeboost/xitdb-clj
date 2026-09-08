@@ -173,3 +173,70 @@
         (catch Exception e
           (println "exception" e))))
     (tu/materialize @db)))
+
+(defn- run-concurrently
+  "Runs `f` on `n` pool threads, returns after all finish."
+  [n f]
+  (let [pool  (java.util.concurrent.Executors/newFixedThreadPool n)
+        latch (java.util.concurrent.CountDownLatch. n)]
+    (try
+      (dotimes [_ n]
+        (.submit pool ^Runnable (fn [] (try (f) (finally (.countDown latch))))))
+      (.await latch)
+      (finally
+        (.shutdown pool)))))
+
+(deftest memory-db-concurrent-reads-are-consistent
+  (testing "many threads looking up keys in a :memory db all see the stored values"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db (into {} (for [i (range 200)] [(str "key-" i) i])))
+      (let [n-threads 8
+            n-lookups 2000
+            misses    (atom 0)
+            wrong     (atom 0)
+            errors    (atom [])]
+        (run-concurrently
+          n-threads
+          (fn []
+            (try
+              (let [v @db]
+                (dotimes [j n-lookups]
+                  (let [i (mod j 200)
+                        r (get v (str "key-" i) ::miss)]
+                    (cond
+                      (= r ::miss) (swap! misses inc)
+                      (not= r i)   (swap! wrong inc)))))
+              (catch Throwable t
+                (swap! errors conj (str (type t) ": " (.getMessage t)))))))
+        (is (= 0 @misses) "no lookup missed")
+        (is (= 0 @wrong) "no lookup returned another key's value")
+        (is (empty? @errors) "no reader threw")))))
+
+(deftest memory-db-writer-is-unaffected-by-concurrent-readers
+  (testing "every swap! on a :memory db succeeds while readers run, and readers never miss"
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db {:counter 0 :data (into {} (for [i (range 100)] [(str "k" i) i]))})
+      (let [n-readers 6
+            n-writes  200
+            running   (atom true)
+            misses    (atom 0)
+            errors    (atom [])
+            readers   (future
+                        (run-concurrently
+                          n-readers
+                          (fn []
+                            (while @running
+                              (try
+                                (let [d (get @db :data)]
+                                  (dotimes [i 100]
+                                    (when (= ::miss (get d (str "k" i) ::miss))
+                                      (swap! misses inc))))
+                                (catch Throwable t
+                                  (swap! errors conj (str (type t) ": " (.getMessage t)))))))))]
+        (dotimes [_ n-writes]
+          (swap! db update :counter inc))
+        (reset! running false)
+        @readers
+        (is (= n-writes (get @db :counter)) "every write was committed")
+        (is (= 0 @misses) "no reader missed a key")
+        (is (empty? @errors) "no reader threw")))))

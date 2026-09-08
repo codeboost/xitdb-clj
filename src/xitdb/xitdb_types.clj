@@ -9,7 +9,7 @@
     [xitdb.sorted-set :as xsorted-set]
     [xitdb.util.conversion :as conversion])
   (:import
-    [io.github.radarroark.xitdb ReadCursor Slot Tag WriteCursor]))
+    [io.github.radarroark.xitdb ReadCursor Tag WriteCursor]))
 
 (defn read-from-cursor
   "Reads the value at cursor and converts it to a Clojure type.
@@ -84,13 +84,6 @@
   WriteCursor
   (-read-from-cursor [this]
     (read-from-cursor this true)))
-
-(defn ^Slot slot-for-value! [^WriteCursor cursor v]
-  (cond
-    (satisfies? common/ISlot v)
-    (common/-slot v)
-    :else
-    (conversion/v->slot! cursor v)))
 
 (defn materialize
   "Converts a xitdb data structure `v` to a clojure data structure.

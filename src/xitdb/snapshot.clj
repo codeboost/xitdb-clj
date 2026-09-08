@@ -14,5 +14,7 @@
   [filename keypath]
   (with-open [db (xit-db-existing filename)]
     (let [memdb (xdb/xit-db :memory)]
-      (reset! memdb (get-in @db keypath))
+      ;; The value read from `db` is a pointer into that file; it has to be
+      ;; copied (materialized) before it can be written into another database.
+      (reset! memdb (xdb/materialize (get-in @db keypath)))
       memdb)))

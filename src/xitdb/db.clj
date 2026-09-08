@@ -2,6 +2,7 @@
   (:require
     [xitdb.common :as common]
     [xitdb.util.conversion :as conversion]
+    [xitdb.util.db-registry :as db-registry]
     [xitdb.xitdb-types :as xtypes])
   (:import
     [io.github.radarroark.xitdb
@@ -51,26 +52,20 @@
         nil)))
   (.count history))
 
-(defn- write-value! [^WriteCursor cursor new-value]
-  (if (satisfies? common/ISlot new-value)
-    (.write cursor (common/-slot new-value))
-    (.write cursor (conversion/v->slot! cursor new-value))))
-
 (defn xitdb-reset!
   "Sets the value of the database to `new-value`.
   Returns new history index."
   [^WriteArrayList history new-value]
   (append-context! history nil (fn [^WriteCursor cursor]
-                                 (write-value! cursor new-value))))
+                                 (.write cursor (conversion/v->slot! cursor new-value)))))
 
 (defn v->slot!
   "Converts a value to a slot which can be written to a cursor.
-  For XITDB* types (which support ISlot), will return `-slot`,
-  for all other types `conversion/v->slot!`"
+  XITDB* types are written by reference (structural sharing) when they belong
+  to the same database as `cursor`; values from another database are refused.
+  All other types are converted by `conversion/v->slot!`."
   [^WriteCursor cursor v]
-  (if (satisfies? common/ISlot v)
-    (common/-slot v)
-    (conversion/v->slot! cursor v)))
+  (conversion/v->slot! cursor v))
 
 (defn xitdb-swap!
   "Starts a new transaction and calls `f` with the value at `base-keypath`.
@@ -89,7 +84,7 @@
         (let [cursor (conversion/keypath-cursor cursor base-keypath)
               obj (xtypes/read-from-cursor cursor true)]
           (let [retval (apply f (into [obj] args))]
-            (write-value! cursor retval)))))))
+            (.write cursor (conversion/v->slot! cursor retval))))))))
 
 (defn xitdb-swap-with-lock!
   "Performs the 'swap!' operation while locking `db.lock`.
@@ -178,16 +173,23 @@
     (apply xitdb-swap-with-lock! (concat [this nil f x y] args))))
 
 (defn- wrap-db [filename ^Database rwdb]
-  (if (= :memory filename)
-    (let [tdbmem (proxy [ThreadLocal] []
-                   (initialValue []
-                     rwdb))]
-      (->XITDBDatabase tdbmem rwdb (ReentrantLock.)))
-
-    (let [tldb (proxy [ThreadLocal] []
-                 (initialValue []
-                   (open-database filename "r")))]
-      (->XITDBDatabase tldb rwdb (ReentrantLock.)))))
+  ;; An engine handle carries per-handle mutable state (message digest, cached
+  ;; header, transaction start), so it must not be shared between threads. Each
+  ;; reader thread therefore gets its own handle: a read-only file handle for a
+  ;; file database, or a fresh handle over the shared in-memory core for :memory.
+  ;; Every handle of this database is registered under one token, so values
+  ;; read through any of them are accepted when written back and values from
+  ;; other databases are not.
+  (let [token       (Object.)
+        ^Database rwdb (db-registry/register-database! rwdb token)
+        open-reader (if (= :memory filename)
+                      (let [^Core core (.-core rwdb)]
+                        #(Database. core (Hasher. (MessageDigest/getInstance "SHA-1"))))
+                      #(open-database filename "r"))
+        tldb        (proxy [ThreadLocal] []
+                      (initialValue []
+                        (db-registry/register-database! (open-reader) token)))]
+    (->XITDBDatabase tldb rwdb (ReentrantLock.))))
 
 (defn xit-db
   "Returns a new XITDBDatabase which can be used to query and transact data.

@@ -59,3 +59,22 @@
       (let [c (xdb/xdb-cursor db [:tags "a"])
             ex (is (thrown? IllegalArgumentException (reset! c "z")))]
         (is (re-find #"sorted-set member" (.getMessage ex)))))))
+
+(deftest cursor-write-to-absent-map-key-stores-the-key
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db {:existing 1})
+    (reset! (xdb/xdb-cursor db [:brand-new]) 42)
+    (testing "the new entry is a real key/value pair, not a keyless slot"
+      (is (= {:existing 1 :brand-new 42} (xdb/materialize @db)))
+      (is (= #{:existing :brand-new} (set (keys @db)))))))
+
+(deftest cursor-into-hash-set-member-is-rejected
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db {:tags #{:a :b}})
+    (testing "a member is stored under its own hash, so overwriting it in place
+              would desync the set; the write is refused and nothing changes"
+      (let [c  (xdb/xdb-cursor db [:tags :a])
+            ex (is (thrown? IllegalArgumentException (reset! c :z)))]
+        (is (re-find #"set member" (.getMessage ex)))
+        (is (= #{:a :b} (xdb/materialize (get @db :tags))))
+        (is (= 1 (count db)) "the refused write did not append a history entry")))))
