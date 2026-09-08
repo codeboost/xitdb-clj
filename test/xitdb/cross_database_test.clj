@@ -53,3 +53,16 @@
     (reset! source {:payload [1 2 3]})
     (reset! target (xdb/materialize @source))
     (is (= {:payload [1 2 3]} (xdb/materialize @target)))))
+
+(deftest materialized-value-with-collection-keys-is-accepted
+  ;; A collection key is read back as a database-backed value too, so
+  ;; materialize has to copy keys as well as values for the copy to be writable
+  ;; into another database.
+  (with-open [source (xdb/xit-db :memory)
+              target (xdb/xit-db :memory)]
+    (reset! source {[1 2] :v {:k 1} #{:s} :sorted (sorted-map 3 {[4] 5})})
+    (let [m (xdb/materialize @source)]
+      (is (every? #(instance? clojure.lang.PersistentVector %)
+                  [(-> m keys first) (-> m :sorted (get 3) keys first)]))
+      (reset! target m)
+      (is (= {[1 2] :v {:k 1} #{:s} :sorted {3 {[4] 5}}} (xdb/materialize @target))))))

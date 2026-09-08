@@ -92,7 +92,7 @@
   common/IMaterialize
   (-materialize [this]
     (reduce (fn [m [k v]]
-              (assoc m k (common/materialize v))) {} (seq this)))
+              (assoc m (common/materialize k) (common/materialize v))) {} (seq this)))
 
   common/IMaterializeShallow
   (-materialize-shallow [this]

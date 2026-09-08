@@ -211,40 +211,22 @@
         (is (= {:value 1} (xdb/materialize @compacted)))))))
 
 (deftest compact-source-and-target-hash-independently-test
+  ;; xitdb 0.34.0 hands the source's MessageDigest to the compacted copy.
+  ;; Key hashing on the Clojure side runs on per-thread digests, so it never
+  ;; races on that shared engine digest, but the two handles must still not
+  ;; share one because they are written under independent locks.
   (with-open [source (xdb/xit-db :memory)]
     (reset! source {})
-    (let [delegate (MessageDigest/getInstance "SHA-1")
-          pause-once? (atom true)
-          hashing-started (promise)
-          target-written (promise)
-          pause (fn []
-                  (when (compare-and-set! pause-once? true false)
-                    (deliver hashing-started true)
-                    (when (= ::timeout (deref target-written 5000 ::timeout))
-                      (throw (ex-info "Timed out waiting for target write" {})))))
-          digest (proxy [MessageDigest] ["SHA-1"]
-                   (engineGetDigestLength [] 20)
-                   (engineUpdate
-                     ([b] (.update delegate (byte b)) (pause))
-                     ([b offset length] (.update delegate b offset length) (pause)))
-                   (engineDigest [] (.digest delegate))
-                   (engineReset [] (.reset delegate)))]
-      ;; Pause a source write midway through hashing its key. A target write
-      ;; must not consume or reset that partial hash, even though locks differ.
-      (set! (.-md (.-rwdb source)) digest)
-      (with-open [compacted (xdb/compact source :memory)]
-        (let [writer (future (reset! source {:left 1}))]
-          (try
-            (is (= true (deref hashing-started 5000 ::timeout)))
-            (reset! compacted {:right 2})
-            (finally
-              (deliver target-written true)))
-          (try
-            (is (not= ::timeout (deref writer 5000 ::timeout)))
-            (is (= 1 (get @source :left)))
-            (is (= 2 (get @compacted :right)))
-            (finally
-              (future-cancel writer))))))))
+    (with-open [compacted (xdb/compact source :memory)]
+      (is (not (identical? (.-md (.-rwdb source)) (.-md (.-rwdb compacted)))))
+      (let [n-writes 200
+            writer   (future (dotimes [i n-writes] (swap! source assoc (str "left-" i) i)))]
+        (dotimes [i n-writes] (swap! compacted assoc (str "right-" i) i))
+        (is (not= ::timeout (deref writer 10000 ::timeout)))
+        (is (= n-writes (count @source)))
+        (is (= n-writes (count @compacted)))
+        (is (every? #(= % (get @source (str "left-" %))) (range n-writes)))
+        (is (every? #(= % (get @compacted (str "right-" %))) (range n-writes)))))))
 
 (deftest compact-cleans-up-failed-copy-test
   (let [source-path (new-path)

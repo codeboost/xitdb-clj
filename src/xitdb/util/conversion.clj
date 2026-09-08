@@ -12,7 +12,8 @@
      Slot Slotted Tag WriteArrayList WriteCountedHashMap WriteCountedHashSet WriteCursor
      WriteHashMap WriteLinkedArrayList WriteSortedMap WriteSortedSet]
     [java.io OutputStream OutputStreamWriter]
-    [java.security DigestOutputStream]))
+    [java.security DigestOutputStream MessageDigest]
+    [java.util HashMap]))
 
 (defn xit-tag->keyword
   "Converts a XitDB Tag enum to a corresponding Clojure keyword."
@@ -73,13 +74,32 @@
       (name key))
     key))
 
+(defonce ^:private thread-digests
+  ;; MessageDigest is not thread-safe and an engine handle's digest is shared by
+  ;; every value read through that handle, so a value handed to another thread
+  ;; would race on it. Hashing state is therefore kept per thread instead,
+  ;; keyed by algorithm name so it matches whichever handle is being used.
+  (proxy [ThreadLocal] []
+    (initialValue []
+      (HashMap.))))
+
+(defn- ^MessageDigest thread-digest
+  "The calling thread's MessageDigest for the algorithm `jdb` was opened with."
+  [^Database jdb]
+  (let [^HashMap digests (.get ^ThreadLocal thread-digests)
+        algorithm        (.getAlgorithm (.-md jdb))]
+    (or (.get digests algorithm)
+        (let [digest (MessageDigest/getInstance algorithm)]
+          (.put digests algorithm digest)
+          digest))))
+
 (defn db-key-hash
   "Returns a byte array representing the stable hash digest of (Clojure) value `v`.
-  Uses the MessageDigest from the database."
+  Uses the same digest algorithm as the database, on a per-thread digest."
   ^bytes [^Database jdb v]
   (if (nil? v)
-    (byte-array (-> jdb .md .getDigestLength))
-    (let [digest (.md jdb)
+    (byte-array (.getDigestLength (thread-digest jdb)))
+    (let [digest (thread-digest jdb)
           fmt-tag (or (some-> v fmt-tag-keyword fmt-tag-value)
                       (throw (IllegalArgumentException. (str "Unsupported key type: " (type v)))))]
       ;; add format tag

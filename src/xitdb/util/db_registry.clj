@@ -1,10 +1,10 @@
 (ns xitdb.util.db-registry
   "Identity of engine handles.
 
-  An XITDBDatabase owns several engine `Database` handles: one writer plus one
-  reader per thread. They are registered here under a shared token so a value
-  read through any of them is recognised as belonging to the same database
-  when it is written back, and a value from any other database is not."
+  An XITDBDatabase owns two engine `Database` handles, a reader and a writer.
+  They are registered here under a shared token so a value read through the
+  reader is recognised as belonging to the same database when it is written
+  back through the writer, and a value from any other database is not."
   (:import
     [java.util Collections Map WeakHashMap]))
 

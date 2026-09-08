@@ -22,3 +22,10 @@
     (testing "a nested keypath"
       (with-open [mem (snapshot/snapshot-memory-db file [:users "alice"])]
         (is (= {:age 30} (xdb/materialize @mem)))))))
+
+(deftest snapshot-memory-db-copies-collection-keys
+  (let [file (temp-db-file)]
+    (with-open [db (xdb/xit-db file)]
+      (reset! db {[1 2] {"nested" [3]} {:k 1} :v}))
+    (with-open [mem (snapshot/snapshot-memory-db file [])]
+      (is (= {[1 2] {"nested" [3]} {:k 1} :v} (xdb/materialize @mem))))))
