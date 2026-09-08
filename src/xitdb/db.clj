@@ -178,7 +178,10 @@
   handle private to the calling thread. A buffered file handle keeps a position
   and a write buffer, so one handle cannot serve two threads; giving each thread
   its own handle behind a single Core lets one reader `Database` be shared by
-  every thread. Closing the Core closes every thread's handle."
+  every thread. Closing the Core closes every thread's handle; a thread that
+  first touches the Core after close gets an IllegalStateException, and a
+  handle opened while close was running is closed by its own thread rather
+  than left behind."
   [^String filename]
   (let [closed? (atom false)
         handles (ConcurrentHashMap/newKeySet)
@@ -188,8 +191,6 @@
                       (throw (IllegalStateException. "Database is closed")))
                     (let [core (CoreBufferedFile. (RandomAccessBufferedFile. (File. filename) "r"))]
                       (.add handles core)
-                      ;; Closed while this handle was being opened: close it
-                      ;; ourselves rather than leaving it behind.
                       (when @closed?
                         (.close core)
                         (throw (IllegalStateException. "Database is closed")))
@@ -210,16 +211,20 @@
           (.close core))
         (.clear handles)))))
 
-(defn- wrap-db [filename ^Database rwdb]
-  ;; Reads go through one shared read-only handle, so a value read on one
-  ;; thread can be used from any other. The engine's read path only touches the
-  ;; handle's Core and its immutable header: the in-memory Core keeps a
-  ;; per-thread position and the file Core above keeps a per-thread file
-  ;; handle, and key hashing uses per-thread digests (see
-  ;; `conversion/db-key-hash`). Writes go through `rwdb` under the lock.
-  ;; Both handles are registered under one token so values read through the
-  ;; reader are accepted when written back and values from other databases
-  ;; are not.
+(defn- wrap-db
+  "Wraps writer handle `rwdb` into an XITDBDatabase, opening its reader handle.
+
+  Reads go through one shared read-only handle, so a value read on one thread
+  can be used from any other. The engine's read path only touches the handle's
+  Core and its immutable header: the in-memory Core keeps a per-thread position
+  and `thread-local-file-core` keeps a per-thread file handle, and key hashing
+  uses per-thread digests (see `conversion/db-key-hash`). Writes go through
+  `rwdb` under the lock.
+
+  Both handles are registered under one token so values read through the
+  reader are accepted when written back and values from other databases are
+  not."
+  [filename ^Database rwdb]
   (let [algorithm (.getAlgorithm (.-md rwdb))
         ^Core ro-core (if (= :memory filename)
                         (.-core rwdb)
@@ -265,7 +270,11 @@
 
   Holds the source's write lock for the whole copy, so `swap!` and `reset!` on
   `xdb` block until compaction finishes. Must not be called from inside a
-  `swap!` or `reset!` on `xdb`; doing so throws IllegalStateException."
+  `swap!` or `reset!` on `xdb`; doing so throws IllegalStateException.
+
+  xitdb 0.34.0 shares the source's mutable digest with the copy. The two
+  handles are written under independent locks, so the copy is given a digest
+  of its own."
   [^XITDBDatabase xdb target]
   (let [^ReentrantLock lock (.-lock xdb)]
     (when (.isHeldByCurrentThread lock)
@@ -276,8 +285,6 @@
             ^Core target-core (:core target-info)]
         (try
           (let [compacted (.compact ^Database (.-rwdb xdb) target-core)]
-            ;; xitdb 0.34.0 shares the source's mutable digest with the copy.
-            ;; These handles have independent locks, so their digests must too.
             (set! (.-md compacted)
                   (MessageDigest/getInstance (.getAlgorithm (.-md compacted))))
             (wrap-db target compacted))
