@@ -74,11 +74,13 @@
       (name key))
     key))
 
-(defonce ^:private thread-digests
-  ;; MessageDigest is not thread-safe and an engine handle's digest is shared by
-  ;; every value read through that handle, so a value handed to another thread
-  ;; would race on it. Hashing state is therefore kept per thread instead,
-  ;; keyed by algorithm name so it matches whichever handle is being used.
+(defonce ^{:private true
+           :doc "Per-thread map of algorithm name to MessageDigest.
+  MessageDigest is not thread-safe and an engine handle's digest is shared by
+  every value read through that handle, so a value handed to another thread
+  would race on it. Hashing state is therefore kept per thread instead, keyed
+  by algorithm name so it matches whichever handle is being used."}
+  thread-digests
   (proxy [ThreadLocal] []
     (initialValue []
       (HashMap.))))
@@ -213,16 +215,19 @@
   "Converts a value to a XitDB slot.
   Handles WriteArrayList and WriteHashMap instances directly.
   Recursively processes Clojure maps and collections.
-  Falls back to primitive conversion for other types."
+  Falls back to primitive conversion for other types.
+
+  Branch order matters. XITDB* wrapper types are also `map?`/`set?`/
+  `sequential?`, so they are unwrapped to the underlying Slotted first or they
+  would be deep-copied through the generic branches (and a sorted map/set would
+  come back as a hash one). Likewise a sorted map/set is checked before the
+  generic hash-map/hash-set branch that would otherwise shadow it."
   [^WriteCursor cursor v]
   (cond
 
     (validation/lazy-seq? v)
     (throw (IllegalArgumentException. "Lazy sequences can be infinite and not allowed!"))
 
-    ;; XITDB* wrapper types are also `map?`/`set?`/`sequential?`, so unwrap them
-    ;; to the underlying Slotted first or they would be deep-copied through the
-    ;; generic branches below (and a sorted map/set would come back as a hash one).
     (common/wrapper? v)
     (v->slot! cursor (common/-unwrap v))
 
@@ -279,15 +284,16 @@
 (defn ^WriteCursor coll->ArrayListCursor!
   "Converts a Clojure collection to a XitDB ArrayList cursor.
   Handles nested maps and collections recursively.
-  Returns the cursor of the created WriteArrayList."
+  Returns the cursor of the created WriteArrayList.
+
+  Sorted maps/sets and XITDB wrappers are also `map?`/`set?`/`sequential?`,
+  so they are delegated to `v->slot!` (which checks those types first) before
+  the generic hash branches."
   [^WriteCursor cursor coll]
   (when *debug?* (println "Write array" (type coll)))
   (let [write-array (WriteArrayList. cursor)]
     (doseq [v coll]
       (cond
-        ;; Sorted map/set are also map?/set?, and XITDB wrappers are also
-        ;; map?/set?/sequential?, so delegate to v->slot! (which checks those
-        ;; first) before the generic hash branches.
         (or (common/wrapper? v)
             (instance? Slotted v)
             (instance? PersistentTreeMap v)
@@ -318,16 +324,17 @@
 
 (defn ^WriteCursor list->LinkedArrayListCursor!
   "Converts a Clojure list or seq-like collection to a XitDB LinkedArrayList cursor.
-   Optimized for sequential access collections rather than random access ones."
+   Optimized for sequential access collections rather than random access ones.
+
+  Sorted maps/sets and XITDB wrappers are also `map?`/`set?`/`sequential?`,
+  so they are delegated to `v->slot!` (which checks those types first) before
+  the generic hash branches."
   [^WriteCursor cursor coll]
   (when *debug?* (println "Write list" (type coll)))
   (let [write-list (WriteLinkedArrayList. cursor)]
     (doseq [v coll]
       (when *debug?* (println "v=" v))
       (cond
-        ;; Sorted map/set are also map?/set?, and XITDB wrappers are also
-        ;; map?/set?/sequential?, so delegate to v->slot! (which checks those
-        ;; first) before the generic hash branches.
         (or (common/wrapper? v)
             (instance? Slotted v)
             (instance? PersistentTreeMap v)
@@ -470,7 +477,17 @@
   (validation/validate-index-bounds i (.count wlal) "Linked array list write cursor")
   (.putCursor wlal i))
 
-(defn write-cursor-for-key [cursor current-key]
+(defn write-cursor-for-key
+  "Returns a write cursor to `current-key` inside the collection at `cursor`,
+  creating the entry when it is absent (for hash maps the key itself is stored
+  too, see `map-write-cursor-storing-key!`).
+
+  Sets have no member cursor: a set member is its own key. A hash-set member
+  lives under the hash of its value and a sorted-set member is an immutable
+  B-tree key, so writing a different value through a member cursor would leave
+  the member filed under the wrong hash/key. Both throw IllegalArgumentException;
+  membership changes go through conj/disj on the set itself."
+  [cursor current-key]
   (let [value-tag (some-> cursor .slot .tag)]
     (cond
       (= value-tag Tag/HASH_MAP)
@@ -485,11 +502,6 @@
       (= value-tag Tag/SORTED_MAP)
       (.putCursor (WriteSortedMap. cursor) (sorted-key/encode-key current-key))
 
-      ;; A set member is its own key: a hash-set member lives under the hash of
-      ;; its value and a sorted-set member is an immutable B-tree key. Writing a
-      ;; different value through a member cursor would leave the member filed
-      ;; under the wrong hash/key, so no member cursor is handed out for either.
-      ;; Mutating membership goes through conj/disj on the set itself.
       (contains? #{Tag/HASH_SET Tag/COUNTED_HASH_SET} value-tag)
       (throw (IllegalArgumentException.
                (format (str "Cannot get a write cursor to set member '%s': "
