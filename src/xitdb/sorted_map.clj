@@ -139,7 +139,7 @@
   common/IMaterialize
   (-materialize [this]
     (reduce (fn [m [k v]]
-              (assoc m k (common/materialize v))) (sorted-map-by sorted-key/key-comparator) (seq this)))
+              (assoc m (common/materialize k) (common/materialize v))) (sorted-map-by sorted-key/key-comparator) (seq this)))
 
   common/IMaterializeShallow
   (-materialize-shallow [this]

@@ -240,3 +240,36 @@
         (is (= n-writes (get @db :counter)) "every write was committed")
         (is (= 0 @misses) "no reader missed a key")
         (is (empty? @errors) "no reader threw")))))
+
+(defn- temp-db-file []
+  (let [f (java.io.File/createTempFile "xitdb-mt" ".db")]
+    (.delete f)
+    (.deleteOnExit f)
+    (.getAbsolutePath f)))
+
+(deftest value-read-on-one-thread-is-safe-on-other-threads
+  (doseq [target [:memory (temp-db-file)]]
+    (testing (str "a value dereferenced once and shared with worker threads: " target)
+      (with-open [db (xdb/xit-db target)]
+        (reset! db (into {} (for [i (range 200)] [(str "key-" i) i])))
+        (let [v         @db
+              n-threads 8
+              n-lookups 5000
+              misses    (atom 0)
+              wrong     (atom 0)
+              errors    (atom [])]
+          (run-concurrently
+            n-threads
+            (fn []
+              (try
+                (dotimes [j n-lookups]
+                  (let [i (mod j 200)
+                        r (get v (str "key-" i) ::miss)]
+                    (cond
+                      (= r ::miss) (swap! misses inc)
+                      (not= r i)   (swap! wrong inc))))
+                (catch Throwable t
+                  (swap! errors conj (str (type t) ": " (.getMessage t)))))))
+          (is (= 0 @misses) "no lookup missed")
+          (is (= 0 @wrong) "no lookup returned another key's value")
+          (is (empty? @errors) "no reader threw"))))))

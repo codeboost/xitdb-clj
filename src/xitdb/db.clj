@@ -12,6 +12,7 @@
     [java.nio.file Files]
     [java.nio.file.attribute FileAttribute]
     [java.security MessageDigest]
+    [java.util.concurrent ConcurrentHashMap]
     [java.util.concurrent.locks ReentrantLock]))
 
 ;; When set to true,
@@ -126,15 +127,15 @@
 (defn deref-at
   "Returns the version of the data at the specified index."
   [xdb index]
-  (let [history (read-history (-> xdb .tldbro .get))
+  (let [history (read-history (.-rodb xdb))
         cursor  (.getCursor history index)]
     (xtypes/read-from-cursor cursor false)))
 
-(deftype XITDBDatabase [tldbro rwdb lock]
+(deftype XITDBDatabase [rodb rwdb lock]
 
   java.io.Closeable
   (close [this]
-    (close-db-internal! (.get tldbro))
+    (close-db-internal! rodb)
     (close-db-internal! rwdb))
 
   clojure.lang.IDeref
@@ -143,7 +144,7 @@
 
   clojure.lang.Counted
   (count [this]
-    (.count (read-history (.get tldbro))))
+    (.count (read-history rodb)))
 
   clojure.lang.IAtom
 
@@ -172,31 +173,75 @@
   (swap [this f x y args]
     (apply xitdb-swap-with-lock! (concat [this nil f x y] args))))
 
+(defn- ^Core thread-local-file-core
+  "A read-only Core over `filename` that runs every operation against a file
+  handle private to the calling thread. A buffered file handle keeps a position
+  and a write buffer, so one handle cannot serve two threads; giving each thread
+  its own handle behind a single Core lets one reader `Database` be shared by
+  every thread. Closing the Core closes every thread's handle."
+  [^String filename]
+  (let [closed? (atom false)
+        handles (ConcurrentHashMap/newKeySet)
+        tl      (proxy [ThreadLocal] []
+                  (initialValue []
+                    (when @closed?
+                      (throw (IllegalStateException. "Database is closed")))
+                    (let [core (CoreBufferedFile. (RandomAccessBufferedFile. (File. filename) "r"))]
+                      (.add handles core)
+                      ;; Closed while this handle was being opened: close it
+                      ;; ourselves rather than leaving it behind.
+                      (when @closed?
+                        (.close core)
+                        (throw (IllegalStateException. "Database is closed")))
+                      core)))
+        current (fn ^Core [] (.get ^ThreadLocal tl))]
+    (reify Core
+      (reader [_] (.reader (current)))
+      (writer [_] (.writer (current)))
+      (length [_] (.length (current)))
+      (seek [_ pos] (.seek (current) pos))
+      (position [_] (.position (current)))
+      (setLength [_ len] (.setLength (current) len))
+      (flush [_] (.flush (current)))
+      (sync [_] (.sync (current)))
+      (close [_]
+        (reset! closed? true)
+        (doseq [^Core core handles]
+          (.close core))
+        (.clear handles)))))
+
 (defn- wrap-db [filename ^Database rwdb]
-  ;; An engine handle carries per-handle mutable state (message digest, cached
-  ;; header, transaction start), so it must not be shared between threads. Each
-  ;; reader thread therefore gets its own handle: a read-only file handle for a
-  ;; file database, or a fresh handle over the shared in-memory core for :memory.
-  ;; Every handle of this database is registered under one token, so values
-  ;; read through any of them are accepted when written back and values from
-  ;; other databases are not.
-  (let [token       (Object.)
-        ^Database rwdb (db-registry/register-database! rwdb token)
-        open-reader (if (= :memory filename)
-                      (let [^Core core (.-core rwdb)]
-                        #(Database. core (Hasher. (MessageDigest/getInstance "SHA-1"))))
-                      #(open-database filename "r"))
-        tldb        (proxy [ThreadLocal] []
-                      (initialValue []
-                        (db-registry/register-database! (open-reader) token)))]
-    (->XITDBDatabase tldb rwdb (ReentrantLock.))))
+  ;; Reads go through one shared read-only handle, so a value read on one
+  ;; thread can be used from any other. The engine's read path only touches the
+  ;; handle's Core and its immutable header: the in-memory Core keeps a
+  ;; per-thread position and the file Core above keeps a per-thread file
+  ;; handle, and key hashing uses per-thread digests (see
+  ;; `conversion/db-key-hash`). Writes go through `rwdb` under the lock.
+  ;; Both handles are registered under one token so values read through the
+  ;; reader are accepted when written back and values from other databases
+  ;; are not.
+  (let [algorithm (.getAlgorithm (.-md rwdb))
+        ^Core ro-core (if (= :memory filename)
+                        (.-core rwdb)
+                        (thread-local-file-core filename))
+        rodb      (try
+                    (Database. ro-core (Hasher. (MessageDigest/getInstance algorithm)))
+                    (catch Throwable t
+                      (when-not (= :memory filename)
+                        (.close ro-core))
+                      (throw t)))
+        token     (Object.)]
+    (db-registry/register-database! rwdb token)
+    (db-registry/register-database! rodb token)
+    (->XITDBDatabase rodb rwdb (ReentrantLock.))))
 
 (defn xit-db
   "Returns a new XITDBDatabase which can be used to query and transact data.
   `filename` can be `:memory` or the name of a file on the filesystem.
   If the file does not exist, it will be created.
-  The returned database handle can be used from multiple threads.
-  Reads can run in parallel, transactions (eg. `swap!`) will only allow one writer at a time."
+  The returned database handle can be used from multiple threads, and so can the
+  values read from it. Reads can run in parallel, transactions (eg. `swap!`) will
+  only allow one writer at a time."
   [filename]
   (wrap-db filename (open-database filename "rw")))
 
