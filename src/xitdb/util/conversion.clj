@@ -97,36 +97,42 @@
 
 (defn db-key-hash
   "Returns a byte array representing the stable hash digest of (Clojure) value `v`.
-  Uses the same digest algorithm as the database, on a per-thread digest."
+  Uses the same digest algorithm as the database, on a per-thread digest.
+  Resets the digest even when hashing throws, so a rejected key cannot affect
+  a later lookup or write on this thread, including in another database."
   ^bytes [^Database jdb v]
   (if (nil? v)
     (byte-array (.getDigestLength (thread-digest jdb)))
     (let [digest (thread-digest jdb)
           fmt-tag (or (some-> v fmt-tag-keyword fmt-tag-value)
                       (throw (IllegalArgumentException. (str "Unsupported key type: " (type v)))))]
-      ;; add format tag
-      (.update digest (.getBytes fmt-tag "UTF-8"))
-      ;; add the value
-      (cond
-        (validation/lazy-seq? v)
-        (throw (IllegalArgumentException. "Lazy sequences can be infinite and not allowed!"))
+      (try
+        (.reset digest)
+        ;; add format tag
+        (.update digest (.getBytes fmt-tag "UTF-8"))
+        ;; add the value
+        (cond
+          (validation/lazy-seq? v)
+          (throw (IllegalArgumentException. "Lazy sequences can be infinite and not allowed!"))
 
-        (bytes? v)
-        (.update digest v)
+          (bytes? v)
+          (.update digest v)
 
-        (instance? Database$Bytes v)
-        (.update digest (.value v))
+          (instance? Database$Bytes v)
+          (.update digest (.value v))
 
-        (coll? v)
-        (with-open [os (DigestOutputStream. (OutputStream/nullOutputStream) digest)]
-          (with-open [writer (OutputStreamWriter. os)]
-            (binding [*out* writer]
-              (pr v))))
+          (coll? v)
+          (with-open [os (DigestOutputStream. (OutputStream/nullOutputStream) digest)]
+            (with-open [writer (OutputStreamWriter. os)]
+              (binding [*out* writer]
+                (pr v))))
 
-        :else
-        (.update digest (.getBytes (str v) "UTF-8")))
-      ;; finish hash
-      (.digest digest))))
+          :else
+          (.update digest (.getBytes (str v) "UTF-8")))
+        ;; finish hash
+        (.digest digest)
+        (finally
+          (.reset digest))))))
 
 (defn ^Slot primitive-for
   "Converts a Clojure primitive value to its corresponding XitDB representation.
