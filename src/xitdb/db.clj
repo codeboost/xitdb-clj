@@ -77,13 +77,13 @@
   Returns the transaction history index."
   [db base-keypath f & args]
   (let [history (db-history db)
-        slot (.getSlot history -1)]
+        slot    (.getSlot history -1)]
     (append-context!
       history
       slot
       (fn [^WriteCursor cursor]
         (let [cursor (conversion/keypath-cursor cursor base-keypath)
-              obj (xtypes/read-from-cursor cursor true)]
+              obj    (xtypes/read-from-cursor cursor true)]
           (let [retval (apply f (into [obj] args))]
             (.write cursor (conversion/v->slot! cursor retval))))))))
 
@@ -225,17 +225,17 @@
   reader are accepted when written back and values from other databases are
   not."
   [filename ^Database rwdb]
-  (let [algorithm (.getAlgorithm (.-md rwdb))
+  (let [algorithm     (.getAlgorithm (.-md rwdb))
         ^Core ro-core (if (= :memory filename)
                         (.-core rwdb)
                         (thread-local-file-core filename))
-        rodb      (try
-                    (Database. ro-core (Hasher. (MessageDigest/getInstance algorithm)))
-                    (catch Throwable t
-                      (when-not (= :memory filename)
-                        (.close ro-core))
-                      (throw t)))
-        token     (Object.)]
+        rodb          (try
+                        (Database. ro-core (Hasher. (MessageDigest/getInstance algorithm)))
+                        (catch Throwable t
+                          (when-not (= :memory filename)
+                            (.close ro-core))
+                          (throw t)))
+        token         (Object.)]
     (db-registry/register-database! rwdb token)
     (db-registry/register-database! rodb token)
     (->XITDBDatabase rodb rwdb (ReentrantLock.))))
@@ -281,7 +281,7 @@
       (throw (IllegalStateException. "compact should not be called from swap! or reset!")))
     (try
       (.lock lock)
-      (let [target-info (create-compact-target target)
+      (let [target-info       (create-compact-target target)
             ^Core target-core (:core target-info)]
         (try
           (let [compacted (.compact ^Database (.-rwdb xdb) target-core)]
@@ -320,13 +320,13 @@
     (xitdb-swap-with-lock! xdb keypath (constantly new-value)))
 
   (swap [this f]
-    (xitdb-swap-with-lock! xdb keypath  f))
+    (xitdb-swap-with-lock! xdb keypath f))
 
   (swap [this f a]
-    (xitdb-swap-with-lock! xdb keypath  f a))
+    (xitdb-swap-with-lock! xdb keypath f a))
 
   (swap [this f a1 a2]
-    (xitdb-swap-with-lock! xdb keypath  f a1 a2))
+    (xitdb-swap-with-lock! xdb keypath f a1 a2))
 
   (swap [this f x y args]
     (apply xitdb-swap-with-lock! (concat [xdb keypath f x y] args))))
@@ -350,6 +350,6 @@
   [x]
   (when-not (satisfies? common/IReadOnly x)
     (throw (IllegalArgumentException.
-            (str "freeze! requires a writeable XITDB data structure, got: " (type x)))))
+             (str "freeze! requires a writeable XITDB data structure, got: " (type x)))))
   (-> x common/-unwrap .cursor .db .freeze)
   (common/-read-only x))
