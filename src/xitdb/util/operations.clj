@@ -119,10 +119,7 @@
   Throws IllegalArgumentException if attempting to associate an internal key.
   Updates the internal count if fast counting is enabled."
   [^WriteHashMap whm k v]
-  (let [key-hash   (conversion/db-key-hash (-> whm .cursor .db) k)
-        key-cursor (.putKeyCursor whm key-hash)
-        cursor     (.putCursor whm key-hash)]
-    (.writeIfEmpty key-cursor (conversion/v->slot! key-cursor k))
+  (let [cursor (conversion/map-write-cursor-storing-key! whm k)]
     (.write cursor (conversion/v->slot! cursor v))
     whm))
 

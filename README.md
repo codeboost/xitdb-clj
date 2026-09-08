@@ -87,6 +87,16 @@ Use `materialize` to convert a nested `XITDB` data structure to a native Clojure
 (xdb/materialize (get-in @db [:users "alice"])) ;; => {:name "Alice" :age 31}
 ```
 
+A value read from a database is a pointer into that database's storage, so it can
+be written back into the *same* database without copying (this is what makes
+reverting to an earlier version cheap, see History below), but it cannot be
+written into a *different* database. Doing so throws an `IllegalArgumentException`;
+`materialize` the value first to copy it:
+
+```clojure
+(reset! other-db (xdb/materialize (get @db :users)))
+```
+
 ## No query language
 
 Use `filter`, `group-by`, `reduce`, etc.

@@ -27,9 +27,18 @@
     (seq? v) (doall (map materialize v))
     :else v))
 
+(def ^:private ^Class unwrap-interface (:on-interface IUnwrap))
+
+(defn wrapper?
+  "True for the XITDB* wrapper types, which all implement `IUnwrap` inline.
+  An interface check rather than `satisfies?`, which costs microseconds per
+  call on non-implementing classes and sits on the per-element write path."
+  [v]
+  (instance? unwrap-interface v))
+
 (defn unwrap
   "For a value that wraps another value, returns the wrapped value."
   [v]
-  (if (satisfies? IUnwrap v)
+  (if (wrapper? v)
     (-unwrap v)
     v))

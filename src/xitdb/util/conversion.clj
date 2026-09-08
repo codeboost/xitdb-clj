@@ -1,13 +1,16 @@
 (ns xitdb.util.conversion
   (:require
+    [xitdb.common :as common]
+    [xitdb.util.db-registry :as db-registry]
     [xitdb.util.sorted-key :as sorted-key]
     [xitdb.util.validation :as validation])
   (:import
     [clojure.lang PersistentTreeMap PersistentTreeSet]
     [io.github.radarroark.xitdb
      Database Database$Bytes Database$Float Database$Int
-     ReadCursor Slot Slotted Tag WriteArrayList WriteCountedHashMap WriteCountedHashSet WriteCursor
-     WriteHashMap WriteHashSet WriteLinkedArrayList WriteSortedMap WriteSortedSet]
+     ReadArrayList ReadCursor ReadHashMap ReadHashSet ReadLinkedArrayList ReadSortedMap ReadSortedSet
+     Slot Slotted Tag WriteArrayList WriteCountedHashMap WriteCountedHashSet WriteCursor
+     WriteHashMap WriteLinkedArrayList WriteSortedMap WriteSortedSet]
     [java.io OutputStream OutputStreamWriter]
     [java.security DigestOutputStream]))
 
@@ -161,6 +164,31 @@
     (or (identical? clojure.lang.RT/DEFAULT_COMPARATOR cmp)
         (identical? sorted-key/key-comparator cmp))))
 
+(defn- ^Database slotted-database
+  "The engine handle a Slotted value was read through, or nil when unknown."
+  [v]
+  (cond
+    (instance? ReadCursor v)          (.-db ^ReadCursor v)
+    (instance? ReadHashMap v)         (.-db ^ReadCursor (.-cursor ^ReadHashMap v))
+    (instance? ReadHashSet v)         (.-db ^ReadCursor (.-cursor ^ReadHashSet v))
+    (instance? ReadArrayList v)       (.-db ^ReadCursor (.-cursor ^ReadArrayList v))
+    (instance? ReadLinkedArrayList v) (.-db ^ReadCursor (.-cursor ^ReadLinkedArrayList v))
+    (instance? ReadSortedMap v)       (.-db ^ReadCursor (.-cursor ^ReadSortedMap v))
+    (instance? ReadSortedSet v)       (.-db ^ReadCursor (.-cursor ^ReadSortedSet v))))
+
+(defn- ^Slot slot-of!
+  "The slot of Slotted `v`, for writing through `cursor`. A slot is an offset
+  into the storage of the database it was read from, so it is only meaningful
+  in that same database; anything else is refused before it can be committed."
+  [^WriteCursor cursor ^Slotted v]
+  (when-let [source-db (slotted-database v)]
+    (when-not (db-registry/same-database? (.-db cursor) source-db)
+      (throw (IllegalArgumentException.
+               (str "Cannot write a value that belongs to a different database. "
+                    "Values read from an xitdb database are pointers into its storage; "
+                    "call xitdb.db/materialize on the value first to copy it.")))))
+  (.slot v))
+
 (defn ^Slot v->slot!
   "Converts a value to a XitDB slot.
   Handles WriteArrayList and WriteHashMap instances directly.
@@ -172,8 +200,14 @@
     (validation/lazy-seq? v)
     (throw (IllegalArgumentException. "Lazy sequences can be infinite and not allowed!"))
 
+    ;; XITDB* wrapper types are also `map?`/`set?`/`sequential?`, so unwrap them
+    ;; to the underlying Slotted first or they would be deep-copied through the
+    ;; generic branches below (and a sorted map/set would come back as a hash one).
+    (common/wrapper? v)
+    (v->slot! cursor (common/-unwrap v))
+
     (instance? Slotted v)
-    (.slot ^Slotted v)
+    (slot-of! cursor v)
 
     ;; A sorted map is also `map?`, so it MUST be checked before the generic
     ;; hash-map branch or it would be shadowed and stored as a hash map.
@@ -231,9 +265,13 @@
   (let [write-array (WriteArrayList. cursor)]
     (doseq [v coll]
       (cond
-        ;; Sorted map/set are also map?/set?, so delegate to v->slot! (which
-        ;; checks the tree types first) before the generic hash branches.
-        (or (instance? PersistentTreeMap v) (instance? PersistentTreeSet v))
+        ;; Sorted map/set are also map?/set?, and XITDB wrappers are also
+        ;; map?/set?/sequential?, so delegate to v->slot! (which checks those
+        ;; first) before the generic hash branches.
+        (or (common/wrapper? v)
+            (instance? Slotted v)
+            (instance? PersistentTreeMap v)
+            (instance? PersistentTreeSet v))
         (let [v-cursor (.appendCursor write-array)]
           (.write v-cursor (v->slot! v-cursor v)))
 
@@ -267,9 +305,13 @@
     (doseq [v coll]
       (when *debug?* (println "v=" v))
       (cond
-        ;; Sorted map/set are also map?/set?, so delegate to v->slot! (which
-        ;; checks the tree types first) before the generic hash branches.
-        (or (instance? PersistentTreeMap v) (instance? PersistentTreeSet v))
+        ;; Sorted map/set are also map?/set?, and XITDB wrappers are also
+        ;; map?/set?/sequential?, so delegate to v->slot! (which checks those
+        ;; first) before the generic hash branches.
+        (or (common/wrapper? v)
+            (instance? Slotted v)
+            (instance? PersistentTreeMap v)
+            (instance? PersistentTreeSet v))
         (let [v-cursor (.appendCursor write-list)]
           (.write v-cursor (v->slot! v-cursor v)))
 
@@ -379,16 +421,21 @@
       :else
       str)))
 
-(defn set-write-cursor
-  [^WriteHashSet whs key]
-  (let [hash-code (db-key-hash (-> whs .-cursor .-db) key)]
-    (.putCursor whs hash-code)))
-
 (defn map-write-cursor
   "Gets a write cursor for the specified key in a WriteHashMap.
   Creates the key if it doesn't exist."
   [^WriteHashMap whm key]
   (let [key-hash (db-key-hash (-> whm .cursor .db) key)]
+    (.putCursor whm key-hash)))
+
+(defn map-write-cursor-storing-key!
+  "Like `map-write-cursor`, but also stores `key` itself when the entry is
+  new. The hash-only `putCursor` never writes the key, so without this a
+  keypath write to an absent key would leave a keyless entry behind."
+  [^WriteHashMap whm key]
+  (let [key-hash   (db-key-hash (-> whm .cursor .db) key)
+        key-cursor (.putKeyCursor whm key-hash)]
+    (.writeIfEmpty key-cursor (v->slot! key-cursor key))
     (.putCursor whm key-hash)))
 
 (defn array-list-write-cursor
@@ -407,10 +454,10 @@
   (let [value-tag (some-> cursor .slot .tag)]
     (cond
       (= value-tag Tag/HASH_MAP)
-      (map-write-cursor (WriteHashMap. cursor) current-key)
+      (map-write-cursor-storing-key! (WriteHashMap. cursor) current-key)
 
       (= value-tag Tag/COUNTED_HASH_MAP)
-      (map-write-cursor (WriteCountedHashMap. cursor) current-key)
+      (map-write-cursor-storing-key! (WriteCountedHashMap. cursor) current-key)
 
       ;; Sorted maps store the real key bytes (order-preserving codec), so a
       ;; keypath write resolves a value cursor by the encoded key, mirroring the
@@ -418,22 +465,24 @@
       (= value-tag Tag/SORTED_MAP)
       (.putCursor (WriteSortedMap. cursor) (sorted-key/encode-key current-key))
 
-      (= value-tag Tag/HASH_SET)
-      (set-write-cursor (WriteHashSet. cursor) current-key)
-
-      ;; A sorted-set member is stored as an immutable B-tree key (the engine
-      ;; only exposes a writeable value slot, which a set never uses), so there
-      ;; is no in-place "member cursor" to hand back the way a hash set has.
+      ;; A set member is its own key: a hash-set member lives under the hash of
+      ;; its value and a sorted-set member is an immutable B-tree key. Writing a
+      ;; different value through a member cursor would leave the member filed
+      ;; under the wrong hash/key, so no member cursor is handed out for either.
       ;; Mutating membership goes through conj/disj on the set itself.
+      (contains? #{Tag/HASH_SET Tag/COUNTED_HASH_SET} value-tag)
+      (throw (IllegalArgumentException.
+               (format (str "Cannot get a write cursor to set member '%s': "
+                            "set members are immutable keys. Use conj/disj "
+                            "on the set itself to change membership.")
+                       current-key)))
+
       (= value-tag Tag/SORTED_SET)
       (throw (IllegalArgumentException.
                (format (str "Cannot get a write cursor to sorted-set member '%s': "
                             "sorted-set members are immutable keys. Use conj/disj "
                             "on the sorted set itself to change membership.")
                        current-key)))
-
-      (= value-tag Tag/COUNTED_HASH_SET)
-      (set-write-cursor (WriteCountedHashSet. cursor) current-key)
 
       (= value-tag Tag/ARRAY_LIST)
       (array-list-write-cursor (WriteArrayList. cursor) current-key)
