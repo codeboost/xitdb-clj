@@ -9,7 +9,7 @@
     [java.util Collections Map WeakHashMap]))
 
 (defonce ^:private database-registry
-  (Collections/synchronizedMap (WeakHashMap.)))
+         (Collections/synchronizedMap (WeakHashMap.)))
 
 (defn register-database!
   "Registers engine handle `db` as belonging to the database identified by

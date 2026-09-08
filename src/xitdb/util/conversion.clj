@@ -75,15 +75,15 @@
     key))
 
 (defonce ^{:private true
-           :doc "Per-thread map of algorithm name to MessageDigest.
+           :doc     "Per-thread map of algorithm name to MessageDigest.
   MessageDigest is not thread-safe and an engine handle's digest is shared by
   every value read through that handle, so a value handed to another thread
   would race on it. Hashing state is therefore kept per thread instead, keyed
   by algorithm name so it matches whichever handle is being used."}
-  thread-digests
-  (proxy [ThreadLocal] []
-    (initialValue []
-      (HashMap.))))
+         thread-digests
+         (proxy [ThreadLocal] []
+           (initialValue []
+             (HashMap.))))
 
 (defn- ^MessageDigest thread-digest
   "The calling thread's MessageDigest for the algorithm `jdb` was opened with."
@@ -103,7 +103,7 @@
   ^bytes [^Database jdb v]
   (if (nil? v)
     (byte-array (.getDigestLength (thread-digest jdb)))
-    (let [digest (thread-digest jdb)
+    (let [digest  (thread-digest jdb)
           fmt-tag (or (some-> v fmt-tag-keyword fmt-tag-value)
                       (throw (IllegalArgumentException. (str "Unsupported key type: " (type v)))))]
       (try
@@ -196,13 +196,13 @@
   "The engine handle a Slotted value was read through, or nil when unknown."
   [v]
   (cond
-    (instance? ReadCursor v)          (.-db ^ReadCursor v)
-    (instance? ReadHashMap v)         (.-db ^ReadCursor (.-cursor ^ReadHashMap v))
-    (instance? ReadHashSet v)         (.-db ^ReadCursor (.-cursor ^ReadHashSet v))
-    (instance? ReadArrayList v)       (.-db ^ReadCursor (.-cursor ^ReadArrayList v))
+    (instance? ReadCursor v) (.-db ^ReadCursor v)
+    (instance? ReadHashMap v) (.-db ^ReadCursor (.-cursor ^ReadHashMap v))
+    (instance? ReadHashSet v) (.-db ^ReadCursor (.-cursor ^ReadHashSet v))
+    (instance? ReadArrayList v) (.-db ^ReadCursor (.-cursor ^ReadArrayList v))
     (instance? ReadLinkedArrayList v) (.-db ^ReadCursor (.-cursor ^ReadLinkedArrayList v))
-    (instance? ReadSortedMap v)       (.-db ^ReadCursor (.-cursor ^ReadSortedMap v))
-    (instance? ReadSortedSet v)       (.-db ^ReadCursor (.-cursor ^ReadSortedSet v))))
+    (instance? ReadSortedMap v) (.-db ^ReadCursor (.-cursor ^ReadSortedMap v))
+    (instance? ReadSortedSet v) (.-db ^ReadCursor (.-cursor ^ReadSortedSet v))))
 
 (defn- ^Slot slot-of!
   "The slot of Slotted `v`, for writing through `cursor`. A slot is an offset

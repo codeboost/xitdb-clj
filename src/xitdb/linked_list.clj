@@ -76,7 +76,7 @@
     (to-array (into [] this)))
 
   (^objects toArray [this ^objects array]
-    (let [len (count this)
+    (let [len             (count this)
           ^objects result (if (or (nil? array) (< (alength array) len))
                             (make-array Object len)
                             array)]
@@ -97,14 +97,14 @@
   common/IMaterialize
   (-materialize [this]
     (apply list
-      (reduce (fn [a v]
-                (conj a (common/materialize v))) [] (seq this))))
+           (reduce (fn [a v]
+                     (conj a (common/materialize v))) [] (seq this))))
 
   common/IMaterializeShallow
   (-materialize-shallow [this]
     (apply list
-      (reduce (fn [a v]
-                (conj a v)) [] (seq this))))
+           (reduce (fn [a v]
+                     (conj a v)) [] (seq this))))
 
   Object
   (toString [this]
