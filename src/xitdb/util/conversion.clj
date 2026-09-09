@@ -1,7 +1,7 @@
 (ns xitdb.util.conversion
   (:require
     [xitdb.common :as common]
-    [xitdb.util.db-registry :as db-registry]
+    [xitdb.util.db-context :as db-context]
     [xitdb.util.sorted-key :as sorted-key]
     [xitdb.util.validation :as validation])
   (:import
@@ -181,7 +181,7 @@
   in that same database; anything else is refused before it can be committed."
   [^WriteCursor cursor ^Slotted v]
   (when-let [source-db (slotted-database v)]
-    (when-not (db-registry/same-database? (.-db cursor) source-db)
+    (when-not (db-context/same-database? (.-db cursor) source-db)
       (throw (IllegalArgumentException.
                (str "Cannot write a value that belongs to a different database. "
                     "Values read from an xitdb database are pointers into its storage; "
