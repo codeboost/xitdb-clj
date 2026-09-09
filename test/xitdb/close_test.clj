@@ -3,13 +3,73 @@
   closing thread's."
   (:require
     [clojure.test :refer :all]
-    [xitdb.db :as xdb]))
+    [xitdb.db :as xdb]
+    [xitdb.util.db-context :as db-context])
+  (:import
+    [io.github.radarroark.xitdb CoreBufferedFile]
+    [java.io IOException]))
 
 (defn- temp-db-file []
   (let [f (java.io.File/createTempFile "xitdb-close" ".db")]
     (.delete f)
     (.deleteOnExit f)
     (.getAbsolutePath f)))
+
+(deftest reader-open-failure-closes-writer
+  (let [file   (temp-db-file)
+        writer (xdb/open-database file "rw")
+        core   (.-core writer)]
+    (try
+      ;; The writer is open, but the reader's path cannot be opened because
+      ;; its parent is a regular file. This fails before context creation.
+      (with-redefs [xdb/open-database (fn [& _] writer)]
+        (is (thrown? IOException (xdb/xit-db (str file "/missing.db")))))
+      (is (thrown? IOException (.sync core)) "the writer descriptor was closed")
+      (finally
+        (.close core)
+        (.delete (java.io.File. file))))))
+
+(deftest context-creation-failure-closes-reader-and-writer
+  (let [file    (temp-db-file)
+        writer  (xdb/open-database file "rw")
+        core    (.-core writer)
+        reader  (atom nil)
+        failure (IOException. "context initialization failed")]
+    (try
+      (with-redefs [xdb/open-database (fn [& _] writer)
+                    db-context/create (fn [reader-core & _]
+                                        (reset! reader reader-core)
+                                        (throw failure))]
+        (is (identical? failure
+                        (try (xdb/xit-db file) (catch IOException t t)))))
+      (is (thrown? IllegalStateException (.length @reader)) "the reader was closed")
+      (is (thrown? IOException (.sync core)) "the writer descriptor was closed")
+      (finally
+        (when @reader (.close @reader))
+        (.close core)
+        (.delete (java.io.File. file))))))
+
+(deftest initialization-failure-survives-writer-close-failure
+  (let [file          (temp-db-file)
+        writer        (xdb/open-database file "rw")
+        core          (.-core writer)
+        failure       (IOException. "context initialization failed")
+        close-failure (IOException. "writer close failed")]
+    (set! (.-core writer)
+          (proxy [CoreBufferedFile] [(.-file ^CoreBufferedFile core)]
+            (close []
+              (proxy-super close)
+              (throw close-failure))))
+    (try
+      (with-redefs [xdb/open-database (fn [& _] writer)
+                    db-context/create (fn [& _] (throw failure))]
+        (is (identical? failure
+                        (try (xdb/xit-db file) (catch IOException t t)))))
+      (is (= [close-failure] (vec (.getSuppressed failure))))
+      (is (thrown? IOException (.sync core)) "cleanup still closed the writer")
+      (finally
+        (.close core)
+        (.delete (java.io.File. file))))))
 
 (defn- on-new-thread
   "Runs `f` on a fresh (non-pooled) thread and returns its result or the

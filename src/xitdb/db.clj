@@ -117,6 +117,14 @@
   [^Database db]
   (.close ^Core (.-core db)))
 
+(defn- close-after-failure!
+  "Closes a core without replacing the failure that triggered cleanup."
+  [^Core core ^Throwable failure]
+  (try
+    (.close core)
+    (catch Throwable close-error
+      (.addSuppressed failure close-error))))
+
 
 (defn ^ReadArrayList read-history
   "Returns the read only transaction history array."
@@ -194,7 +202,7 @@
                         (db-context/create ro-core (.-core rwdb) (.hasher rwdb))
                         (catch Throwable t
                           (when-not (= :memory filename)
-                            (.close ro-core))
+                            (close-after-failure! ro-core t))
                           (throw t)))]
     (->XITDBDatabase (:reader context) (:writer context) (ReentrantLock.))))
 
@@ -206,7 +214,12 @@
   values read from it. Reads can run in parallel, transactions (eg. `swap!`) will
   only allow one writer at a time."
   [filename]
-  (wrap-db filename (open-database filename "rw")))
+  (let [^Database writer (open-database filename "rw")]
+    (try
+      (wrap-db filename writer)
+      (catch Throwable t
+        (close-after-failure! (.-core writer) t)
+        (throw t)))))
 
 (defn- create-compact-target [filename]
   (if (= :memory filename)

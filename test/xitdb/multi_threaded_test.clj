@@ -182,9 +182,12 @@
     (try
       (dotimes [_ n]
         (.submit pool ^Runnable (fn [] (try (f) (finally (.countDown latch))))))
-      (.await latch)
+      (when-not (.await latch 30 java.util.concurrent.TimeUnit/SECONDS)
+        (throw (ex-info "Timed out waiting for reader workers" {})))
       (finally
-        (.shutdown pool)))))
+        (.shutdownNow pool)
+        (is (.awaitTermination pool 5 java.util.concurrent.TimeUnit/SECONDS)
+            "reader workers terminate")))))
 
 (deftest memory-db-concurrent-reads-are-consistent
   (testing "many threads looking up keys in a :memory db all see the stored values"
@@ -225,7 +228,7 @@
                         (run-concurrently
                           n-readers
                           (fn []
-                            (while @running
+                            (while (and @running (not (.isInterrupted (Thread/currentThread))))
                               (try
                                 (let [d (get @db :data)]
                                   (dotimes [i 100]
@@ -233,10 +236,16 @@
                                       (swap! misses inc))))
                                 (catch Throwable t
                                   (swap! errors conj (str (type t) ": " (.getMessage t)))))))))]
-        (dotimes [_ n-writes]
-          (swap! db update :counter inc))
-        (reset! running false)
-        @readers
+        (try
+          (dotimes [_ n-writes]
+            (swap! db update :counter inc))
+          (finally
+            (reset! running false)
+            (try
+              (is (not= ::timeout (deref readers 10000 ::timeout))
+                  "readers stop after the writer finishes or throws")
+              (finally
+                (future-cancel readers)))))
         (is (= n-writes (get @db :counter)) "every write was committed")
         (is (= 0 @misses) "no reader missed a key")
         (is (empty? @errors) "no reader threw")))))
