@@ -13,18 +13,25 @@
 
 (defn register-database!
   "Registers engine handle `db` as belonging to the database identified by
-  `token`. Returns `db`."
-  [db token]
-  (.put ^Map database-registry db token)
-  db)
+  `token`, optionally with its reader handle. Returns `db`."
+  ([db token]
+   (register-database! db token nil))
+  ([db token reader]
+   (.put ^Map database-registry db {:token token :reader reader})
+   db))
 
 (defn database-token
   "Identity of the database `db` belongs to: its registered token, or `db`
   itself when it was never registered (a bare handle from `open-database`)."
   [db]
-  (or (.get ^Map database-registry db) db))
+  (or (:token (.get ^Map database-registry db)) db))
 
 (defn same-database?
   "True when engine handles `db-a` and `db-b` belong to the same database."
   [db-a db-b]
   (identical? (database-token db-a) (database-token db-b)))
+
+(defn reader-database
+  "Reader handle for `db`, or `db` itself for an unregistered handle."
+  [db]
+  (or (:reader (.get ^Map database-registry db)) db))
