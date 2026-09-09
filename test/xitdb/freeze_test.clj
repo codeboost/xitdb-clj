@@ -5,6 +5,18 @@
     [xitdb.db :as xdb]
     [xitdb.test-utils :as tu]))
 
+(deftest cursor-freeze
+  ;; freezing makes the nested cursor unwritable; swap! must reacquire it
+  ;; from the transaction root before writing the callback's result
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db {:nested {:v 1}})
+    (let [cursor (xdb/xdb-cursor db [:nested])]
+      (swap! cursor xdb/freeze!)
+      (is (= {:v 1} (xdb/materialize @cursor)))
+      (swap! cursor #(assoc (xdb/freeze! %) :v 2))
+      (is (= {:nested {:v 2}} (xdb/materialize @db)))
+      (is (= {:nested {:v 1}} (xdb/materialize (xdb/deref-at db 1)))))))
+
 (deftest freeze-array-list-test
   (testing "without freeze"
     (with-open [db (xdb/xit-db :memory)]
