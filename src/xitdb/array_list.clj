@@ -248,17 +248,13 @@
   (-unwrap [this]
     wal)
 
-  common/IReadOnly
-  (-read-only [this]
-    (XITDBArrayList. wal))
-
   Object
   (toString [this]
     (str "XITDBWriteArrayList")))
 
 (defmethod print-method XITDBWriteArrayList [o ^java.io.Writer w]
   (.write w "#XITDBWriteArrayList")
-  (print-method (into [] (common/-read-only o)) w))
+  (print-method (into [] (seq o)) w))
 
 ;; Constructors
 

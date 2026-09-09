@@ -184,17 +184,13 @@
   (-unwrap [this]
     whm)
 
-  common/IReadOnly
-  (-read-only [this]
-    (XITDBHashMap. whm))
-
   Object
   (toString [this]
     (str "XITDBWriteHashMap")))
 
 (defmethod print-method XITDBWriteHashMap [o ^java.io.Writer w]
   (.write w "#XITDBWriteHashMap")
-  (print-method (into {} (common/-read-only o)) w))
+  (print-method (into {} (seq o)) w))
 
 (defn xwrite-hash-map [^WriteCursor write-cursor]
   (->XITDBWriteHashMap (WriteHashMap. write-cursor)))

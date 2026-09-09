@@ -15,9 +15,6 @@
 (defprotocol IUnwrap
   (-unwrap [this]))
 
-(defprotocol IReadOnly
-  (-read-only [this]))
-
 (defn materialize [v]
   (cond
     (satisfies? IMaterialize v) (-materialize v)

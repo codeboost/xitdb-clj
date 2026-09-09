@@ -225,17 +225,13 @@
   (-unwrap [_]
     wss)
 
-  common/IReadOnly
-  (-read-only [this]
-    (XITDBSortedSet. wss))
-
   Object
   (toString [_]
     (str "XITDBWriteSortedSet")))
 
 (defmethod print-method XITDBWriteSortedSet [o ^java.io.Writer w]
   (.write w "#XITDBWriteSortedSet")
-  (print-method (into (sorted-set-by sorted-key/key-comparator) (common/-read-only o)) w))
+  (print-method (into (sorted-set-by sorted-key/key-comparator) (seq o)) w))
 
 ;; Constructor functions
 (defn xwrite-sorted-set [^WriteCursor write-cursor]

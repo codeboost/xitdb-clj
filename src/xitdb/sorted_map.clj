@@ -267,17 +267,13 @@
   (-unwrap [this]
     wsm)
 
-  common/IReadOnly
-  (-read-only [this]
-    (XITDBSortedMap. wsm))
-
   Object
   (toString [this]
     (str "XITDBWriteSortedMap")))
 
 (defmethod print-method XITDBWriteSortedMap [o ^java.io.Writer w]
   (.write w "#XITDBWriteSortedMap")
-  (print-method (into (sorted-map-by sorted-key/key-comparator) (common/-read-only o)) w))
+  (print-method (into (sorted-map-by sorted-key/key-comparator) (seq o)) w))
 
 (defn xwrite-sorted-map [^WriteCursor write-cursor]
   (->XITDBWriteSortedMap (WriteSortedMap. write-cursor)))
