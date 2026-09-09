@@ -71,7 +71,7 @@
       (.close db)
       (deliver go true)
       (.join reader)
-      (is (instance? java.io.IOException @after)
+      (is (instance? IllegalStateException @after)
           "the worker's handle was closed by the main thread's close")
       (is (instance? IllegalStateException (on-new-thread #(deref db)))
           "a thread that first touches the database after close gets a clear error, not a new handle"))))

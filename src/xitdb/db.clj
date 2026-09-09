@@ -6,13 +6,12 @@
     [xitdb.xitdb-types :as xtypes])
   (:import
     [io.github.radarroark.xitdb
-     Core CoreBufferedFile CoreMemory Database Database$ContextFunction Hasher
+     Core CoreBufferedFile CoreMemory CoreReadOnlyFile Database Database$ContextFunction Hasher
      RandomAccessBufferedFile RandomAccessMemory ReadArrayList WriteArrayList WriteCursor]
     [java.io File]
     [java.nio.file Files]
     [java.nio.file.attribute FileAttribute]
     [java.security MessageDigest]
-    [java.util WeakHashMap]
     [java.util.concurrent.locks ReentrantLock]))
 
 ;; When set to true,
@@ -173,51 +172,13 @@
   (swap [this f x y args]
     (apply xitdb-swap-with-lock! (concat [this nil f x y] args))))
 
-(defn- ^Core thread-local-file-core
-  "A read-only Core over `filename` that runs every operation against a file
-  handle private to the calling thread. A buffered file handle keeps a position
-  and a write buffer, so one handle cannot serve two threads; giving each thread
-  its own handle behind a single Core lets one reader `Database` be shared by
-  every thread. Handles are tracked weakly so terminated threads' handles can
-  be collected and their file descriptors released while the database is open.
-  Closing the Core closes every remaining handle. Registration and close share
-  a lock so a newly opened handle cannot escape cleanup; a thread that first
-  touches the Core after close gets an IllegalStateException."
-  [^String filename]
-  (let [closed? (atom false)
-        handles (WeakHashMap.)
-        tl      (proxy [ThreadLocal] []
-                  (initialValue []
-                    (locking handles
-                      (when @closed?
-                        (throw (IllegalStateException. "Database is closed")))
-                      (let [core (CoreBufferedFile. (RandomAccessBufferedFile. (File. filename) "r"))]
-                        (.put handles core true)
-                        core))))
-        current (fn ^Core [] (.get ^ThreadLocal tl))]
-    (reify Core
-      (reader [_] (.reader (current)))
-      (writer [_] (.writer (current)))
-      (length [_] (.length (current)))
-      (seek [_ pos] (.seek (current) pos))
-      (position [_] (.position (current)))
-      (setLength [_ len] (.setLength (current) len))
-      (flush [_] (.flush (current)))
-      (sync [_] (.sync (current)))
-      (close [_]
-        (locking handles
-          (reset! closed? true)
-          (doseq [^Core core (.keySet handles)]
-            (.close core))
-          (.clear handles))))))
-
 (defn- wrap-db
   "Wraps writer handle `rwdb` into an XITDBDatabase, opening its reader handle.
 
   Reads go through one shared read-only handle, so a value read on one thread
   can be used from any other. The engine's read path only touches the handle's
   Core and its immutable header: the in-memory Core keeps a per-thread position
-  and `thread-local-file-core` keeps a per-thread file handle, and key hashing
+  and `CoreReadOnlyFile` keeps a per-thread file handle, and key hashing
   uses independent engine digests (see `conversion/db-key-hash`). Writes go through
   `rwdb` under the lock.
 
@@ -227,7 +188,7 @@
   [filename ^Database rwdb]
   (let [^Core ro-core (if (= :memory filename)
                         (.-core rwdb)
-                        (thread-local-file-core filename))
+                        (CoreReadOnlyFile. (File. ^String filename)))
         rodb          (try
                         (Database. ro-core (.hasher rwdb))
                         (catch Throwable t
