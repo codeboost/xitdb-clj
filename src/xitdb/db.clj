@@ -7,7 +7,7 @@
   (:import
     [io.github.radarroark.xitdb
      Core CoreBufferedFile CoreMemory CoreReadOnlyFile Database Database$ContextFunction Hasher
-     RandomAccessBufferedFile RandomAccessMemory ReadArrayList WriteArrayList WriteCursor]
+     RandomAccessBufferedFile RandomAccessMemory ReadArrayList ReadCursor WriteArrayList WriteCursor]
     [java.io File]
     [java.nio.file Files]
     [java.nio.file.attribute FileAttribute]
@@ -196,7 +196,7 @@
                             (.close ro-core))
                           (throw t)))
         token         (Object.)]
-    (db-registry/register-database! rwdb token)
+    (db-registry/register-database! rwdb token rodb)
     (db-registry/register-database! rodb token)
     (->XITDBDatabase rodb rwdb (ReentrantLock.))))
 
@@ -305,5 +305,9 @@
   (when-not (satisfies? common/IReadOnly x)
     (throw (IllegalArgumentException.
              (str "freeze! requires a writeable XITDB data structure, got: " (type x)))))
-  (-> x common/-unwrap .cursor .db .freeze)
-  (common/-read-only x))
+  (let [^ReadCursor cursor (-> x common/-unwrap .cursor)
+        ^Database writer (.-db cursor)
+        ^Database reader (db-registry/reader-database writer)]
+    (.freeze writer)
+    (.flush ^Core (.-core writer))
+    (xtypes/read-from-cursor (ReadCursor. (.-slotPtr cursor) reader) false)))
