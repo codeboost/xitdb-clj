@@ -80,11 +80,13 @@
     (append-context!
       history
       slot
-      (fn [^WriteCursor cursor]
-        (let [cursor (conversion/keypath-cursor cursor base-keypath)
-              obj    (xtypes/read-from-cursor cursor true)]
-          (let [retval (apply f (into [obj] args))]
-            (.write cursor (conversion/v->slot! cursor retval))))))))
+      (fn [^WriteCursor root-cursor]
+        (let [cursor (conversion/keypath-cursor root-cursor base-keypath)
+              obj    (xtypes/read-from-cursor cursor true)
+              retval (apply f (into [obj] args))
+              ;; the callback may have frozen the original destination
+              cursor (conversion/keypath-cursor root-cursor base-keypath)]
+          (.write cursor (conversion/v->slot! cursor retval)))))))
 
 (defn xitdb-swap-with-lock!
   "Performs the 'swap!' operation while locking `db.lock`.
