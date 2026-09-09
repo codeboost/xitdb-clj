@@ -2,7 +2,7 @@
   (:require
     [xitdb.common :as common]
     [xitdb.util.conversion :as conversion]
-    [xitdb.util.db-registry :as db-registry]
+    [xitdb.util.db-context :as db-context]
     [xitdb.xitdb-types :as xtypes])
   (:import
     [io.github.radarroark.xitdb
@@ -184,23 +184,19 @@
   uses independent engine digests (see `conversion/db-key-hash`). Writes go through
   `rwdb` under the lock.
 
-  Both handles are registered under one token so values read through the
-  reader are accepted when written back and values from other databases are
-  not."
+  The writer refers to its reader so values from that reader are accepted
+  when written back and values from other databases are not."
   [filename ^Database rwdb]
   (let [^Core ro-core (if (= :memory filename)
                         (.-core rwdb)
                         (CoreReadOnlyFile. (File. ^String filename)))
-        rodb          (try
-                        (Database. ro-core (.hasher rwdb))
+        context       (try
+                        (db-context/create ro-core (.-core rwdb) (.hasher rwdb))
                         (catch Throwable t
                           (when-not (= :memory filename)
                             (.close ro-core))
-                          (throw t)))
-        token         (Object.)]
-    (db-registry/register-database! rwdb token rodb)
-    (db-registry/register-database! rodb token)
-    (->XITDBDatabase rodb rwdb (ReentrantLock.))))
+                          (throw t)))]
+    (->XITDBDatabase (:reader context) (:writer context) (ReentrantLock.))))
 
 (defn xit-db
   "Returns a new XITDBDatabase which can be used to query and transact data.
@@ -309,7 +305,7 @@
              (str "freeze! requires a writeable XITDB data structure, got: " (type x)))))
   (let [^ReadCursor cursor (-> x common/-unwrap .cursor)
         ^Database writer (.-db cursor)
-        ^Database reader (db-registry/reader-database writer)]
+        ^Database reader (db-context/reader-database writer)]
     (.freeze writer)
     (.flush ^Core (.-core writer))
     (xtypes/read-from-cursor (ReadCursor. (.-slotPtr cursor) reader) false)))
