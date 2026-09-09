@@ -218,19 +218,18 @@
   can be used from any other. The engine's read path only touches the handle's
   Core and its immutable header: the in-memory Core keeps a per-thread position
   and `thread-local-file-core` keeps a per-thread file handle, and key hashing
-  uses per-thread digests (see `conversion/db-key-hash`). Writes go through
+  uses independent engine digests (see `conversion/db-key-hash`). Writes go through
   `rwdb` under the lock.
 
   Both handles are registered under one token so values read through the
   reader are accepted when written back and values from other databases are
   not."
   [filename ^Database rwdb]
-  (let [algorithm     (.getAlgorithm (.-md rwdb))
-        ^Core ro-core (if (= :memory filename)
+  (let [^Core ro-core (if (= :memory filename)
                         (.-core rwdb)
                         (thread-local-file-core filename))
         rodb          (try
-                        (Database. ro-core (Hasher. (MessageDigest/getInstance algorithm)))
+                        (Database. ro-core (.hasher rwdb))
                         (catch Throwable t
                           (when-not (= :memory filename)
                             (.close ro-core))
@@ -270,11 +269,7 @@
 
   Holds the source's write lock for the whole copy, so `swap!` and `reset!` on
   `xdb` block until compaction finishes. Must not be called from inside a
-  `swap!` or `reset!` on `xdb`; doing so throws IllegalStateException.
-
-  xitdb 0.34.0 shares the source's mutable digest with the copy. The two
-  handles are written under independent locks, so the copy is given a digest
-  of its own."
+  `swap!` or `reset!` on `xdb`; doing so throws IllegalStateException."
   [^XITDBDatabase xdb target]
   (let [^ReentrantLock lock (.-lock xdb)]
     (when (.isHeldByCurrentThread lock)
@@ -285,8 +280,6 @@
             ^Core target-core (:core target-info)]
         (try
           (let [compacted (.compact ^Database (.-rwdb xdb) target-core)]
-            (set! (.-md compacted)
-                  (MessageDigest/getInstance (.getAlgorithm (.-md compacted))))
             (wrap-db target compacted))
           (catch Throwable t
             ;; Clean up the target without hiding the original error

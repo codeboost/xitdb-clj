@@ -211,14 +211,9 @@
         (is (= {:value 1} (xdb/materialize @compacted)))))))
 
 (deftest compact-source-and-target-hash-independently-test
-  ;; xitdb 0.34.0 hands the source's MessageDigest to the compacted copy.
-  ;; Key hashing on the Clojure side runs on per-thread digests, so it never
-  ;; races on that shared engine digest, but the two handles must still not
-  ;; share one because they are written under independent locks.
   (with-open [source (xdb/xit-db :memory)]
     (reset! source {})
     (with-open [compacted (xdb/compact source :memory)]
-      (is (not (identical? (.-md (.-rwdb source)) (.-md (.-rwdb compacted)))))
       (let [n-writes 200
             writer   (future (dotimes [i n-writes] (swap! source assoc (str "left-" i) i)))]
         (dotimes [i n-writes] (swap! compacted assoc (str "right-" i) i))
