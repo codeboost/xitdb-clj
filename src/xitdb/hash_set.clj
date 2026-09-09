@@ -144,17 +144,13 @@
   (-unwrap [_]
     whs)
 
-  common/IReadOnly
-  (-read-only [this]
-    (XITDBHashSet. whs))
-
   Object
   (toString [_]
     (str "XITDBWriteHashSet")))
 
 (defmethod print-method XITDBWriteHashSet [o ^java.io.Writer w]
   (.write w "#XITDBWriteHashSet")
-  (print-method (into #{} (common/-read-only o)) w))
+  (print-method (into #{} (seq o)) w))
 
 ;; Constructor functions
 (defn xwrite-hash-set [^WriteCursor write-cursor]

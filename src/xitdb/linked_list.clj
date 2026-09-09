@@ -230,17 +230,13 @@
   (-unwrap [this]
     wlal)
 
-  common/IReadOnly
-  (-read-only [this]
-    (XITDBLinkedArrayList. wlal))
-
   Object
   (toString [this]
     (str "XITDBWriteLinkedArrayList")))
 
 (defmethod print-method XITDBWriteLinkedArrayList [o ^java.io.Writer w]
   (.write w "#XITDBWriteLinkedArrayList")
-  (print-method (into [] (common/-read-only o)) w))
+  (print-method (into [] (seq o)) w))
 
 ;; Constructors
 

@@ -310,12 +310,14 @@
   outside of a transaction. Returns a read-only version of the
   given writeable data structure."
   [x]
-  (when-not (satisfies? common/IReadOnly x)
-    (throw (IllegalArgumentException.
-             (str "freeze! requires a writeable XITDB data structure, got: " (type x)))))
-  (let [^ReadCursor cursor (-> x common/-unwrap .cursor)
-        ^Database writer (.-db cursor)
-        ^Database reader (db-context/reader-database writer)]
-    (.freeze writer)
-    (.flush ^Core (.-core writer))
-    (xtypes/read-from-cursor (ReadCursor. (.-slotPtr cursor) reader) false)))
+  (let [^ReadCursor cursor (when (common/wrapper? x)
+                             (-> x common/-unwrap .cursor))]
+    (when-not (instance? WriteCursor cursor)
+      (throw (IllegalArgumentException.
+               (str "freeze! requires a writeable XITDB data structure, got: " (type x)))))
+    (let [^Database writer (.-db cursor)
+          ^Database reader (db-context/reader-database writer)]
+      (.freeze writer)
+      (.flush ^Core (.-core writer))
+      ;; rebuild on the reader handle so the value can be shared across threads
+      (xtypes/read-from-cursor (ReadCursor. (.-slotPtr cursor) reader) false))))
