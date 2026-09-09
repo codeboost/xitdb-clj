@@ -255,10 +255,7 @@
             (wrap-db target compacted))
           (catch Throwable t
             ;; Clean up the target without hiding the original error
-            (try
-              (.close target-core)
-              (catch Throwable close-error
-                (.addSuppressed ^Throwable t close-error)))
+            (close-after-failure! target-core t)
             (when-let [^File file (:file target-info)]
               (try
                 (Files/deleteIfExists (.toPath file))
