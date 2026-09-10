@@ -88,6 +88,14 @@
               cursor (conversion/keypath-cursor root-cursor base-keypath)]
           (.write cursor (conversion/v->slot! cursor retval)))))))
 
+(defn- with-file-lock [^Database db f]
+  (let [core (.-core db)]
+    (if (instance? CoreBufferedFile core)
+      (with-open [held (or (.tryLock (.getChannel (.-file ^CoreBufferedFile core)))
+                          (throw (IllegalStateException. "Database is locked for writing")))]
+        (f))
+      (f))))
+
 (defn xitdb-swap-with-lock!
   "Performs the 'swap!' operation while locking `db.lock`.
   Returns the new value of the database.
@@ -102,12 +110,14 @@
       (throw (IllegalStateException. "swap! should not be called from swap! or reset!")))
     (try
       (.lock lock)
-      (let [old-value (when *return-history?* (deref xitdb))
-            index     (apply xitdb-swap! (into [(-> xitdb .rwdb) base-keypath f] args))
-            new-value (deref xitdb)]
-        (if *return-history?*
-          [index old-value new-value]
-          new-value))
+      (with-file-lock (.-rwdb xitdb)
+        (fn []
+          (let [old-value (when *return-history?* (deref xitdb))
+                index     (apply xitdb-swap! (into [(-> xitdb .rwdb) base-keypath f] args))
+                new-value (deref xitdb)]
+            (if *return-history?*
+              [index old-value new-value]
+              new-value))))
       (finally
         (.unlock lock)))))
 
@@ -164,9 +174,11 @@
 
     (try
       (.lock lock)
-      (let [history (db-history rwdb)]
-        (xitdb-reset! history new-value)
-        (deref this))
+      (with-file-lock rwdb
+        (fn []
+          (let [history (db-history rwdb)]
+            (xitdb-reset! history new-value)
+            (deref this))))
       (finally
         (.unlock lock))))
 
