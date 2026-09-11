@@ -1,6 +1,7 @@
 (ns xitdb.hash-set
   (:require
     [xitdb.common :as common]
+    [xitdb.util.collection :as collection]
     [xitdb.util.conversion :as conversion]
     [xitdb.util.operations :as operations])
   (:import
@@ -32,13 +33,49 @@
   (empty [this]
     #{})
 
-  (equiv [this other]
-    (and (instance? clojure.lang.IPersistentSet other)
-         (= (count this) (count other))
-         (every? #(.contains this %) other)))
-
   (count [_]
     (operations/set-item-count rhs))
+
+  (equiv [this other]
+    (clojure.lang.APersistentSet/setEquals this other))
+
+  clojure.lang.IHashEq
+  (hasheq [this]
+    (collection/unordered-hasheq this))
+
+  java.util.Set
+  (size [this]
+    (count this))
+
+  (isEmpty [this]
+    (zero? (count this)))
+
+  (containsAll [this other]
+    (every? #(.contains this %) other))
+
+  (^objects toArray [this]
+    (to-array (seq this)))
+
+  (^objects toArray [this ^objects array]
+    (.toArray ^java.util.Collection (vec (seq this)) array))
+
+  (add [_ _]
+    (collection/unsupported-mutation!))
+
+  (remove [_ _]
+    (collection/unsupported-mutation!))
+
+  (addAll [_ _]
+    (collection/unsupported-mutation!))
+
+  (retainAll [_ _]
+    (collection/unsupported-mutation!))
+
+  (removeAll [_ _]
+    (collection/unsupported-mutation!))
+
+  (clear [_]
+    (collection/unsupported-mutation!))
 
   clojure.lang.Seqable
   (seq [this]
@@ -85,6 +122,12 @@
     (into #{} (seq this)))
 
   Object
+  (equals [this other]
+    (clojure.lang.APersistentSet/setEquals this other))
+
+  (hashCode [this]
+    (collection/set-hash this))
+
   (toString [this]
     (str (into #{} this))))
 
@@ -96,32 +139,72 @@
 (deftype XITDBWriteHashSet [^WriteHashSet whs]
   clojure.lang.IPersistentSet
   (disjoin [this v]
-    (operations/set-disj-value! whs (common/unwrap v))
+    (operations/set-disj-value! whs v)
     this)
 
   (contains [this v]
-    (operations/set-contains? whs (common/unwrap v)))
+    (operations/set-contains? whs v))
 
   (get [this k]
-    (when (.contains this (common/unwrap k))
+    (when (.contains this k)
       k))
 
   clojure.lang.IPersistentCollection
   (cons [this o]
-    (operations/set-assoc-value! whs (common/unwrap o))
+    (operations/set-assoc-value! whs o)
     this)
 
   (empty [this]
     (operations/set-empty! whs)
     this)
 
-  (equiv [this other]
-    (and (instance? clojure.lang.IPersistentSet other)
-         (= (count this) (count other))
-         (every? #(.contains this %) other)))
-
   (count [_]
     (operations/set-item-count whs))
+
+  (equiv [this other]
+    (clojure.lang.APersistentSet/setEquals this other))
+
+  clojure.lang.IHashEq
+  (hasheq [this]
+    (collection/unordered-hasheq this))
+
+  java.util.Set
+  (size [this]
+    (count this))
+
+  (isEmpty [this]
+    (zero? (count this)))
+
+  (containsAll [this other]
+    (every? #(.contains this %) other))
+
+  (^objects toArray [this]
+    (to-array (seq this)))
+
+  (^objects toArray [this ^objects array]
+    (.toArray ^java.util.Collection (vec (seq this)) array))
+
+  (add [_ _]
+    (collection/unsupported-mutation!))
+
+  (remove [_ _]
+    (collection/unsupported-mutation!))
+
+  (addAll [_ _]
+    (collection/unsupported-mutation!))
+
+  (retainAll [_ _]
+    (collection/unsupported-mutation!))
+
+  (removeAll [_ _]
+    (collection/unsupported-mutation!))
+
+  (clear [_]
+    (collection/unsupported-mutation!))
+
+  java.lang.Iterable
+  (iterator [this]
+    (clojure.lang.SeqIterator. (seq this)))
 
   clojure.lang.Seqable
   (seq [this]
@@ -145,6 +228,12 @@
     whs)
 
   Object
+  (equals [this other]
+    (clojure.lang.APersistentSet/setEquals this other))
+
+  (hashCode [this]
+    (collection/set-hash this))
+
   (toString [_]
     (str "XITDBWriteHashSet")))
 
