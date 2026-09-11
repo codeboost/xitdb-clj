@@ -90,13 +90,13 @@
     (boolean (some #(clojure.lang.Util/equals v (val %)) (seq this))))
 
   (keySet [this]
-    (.keySet ^java.util.Map (into {} this)))
+    (collection/map-key-set this))
 
   (values [this]
-    (.values ^java.util.Map (into {} this)))
+    (collection/map-values this))
 
   (entrySet [this]
-    (.entrySet ^java.util.Map (into {} this)))
+    (collection/map-entry-set this))
 
   (put [_ _ _]
     (collection/unsupported-mutation!))
@@ -247,13 +247,13 @@
     (boolean (some #(clojure.lang.Util/equals v (val %)) (seq this))))
 
   (keySet [this]
-    (.keySet ^java.util.Map (into {} this)))
+    (collection/map-key-set this))
 
   (values [this]
-    (.values ^java.util.Map (into {} this)))
+    (collection/map-values this))
 
   (entrySet [this]
-    (.entrySet ^java.util.Map (into {} this)))
+    (collection/map-entry-set this))
 
   (put [_ _ _]
     (collection/unsupported-mutation!))
@@ -266,6 +266,10 @@
 
   (clear [_]
     (collection/unsupported-mutation!))
+
+  java.lang.Iterable
+  (iterator [this]
+    (clojure.lang.SeqIterator. (seq this)))
 
   clojure.lang.Associative
   (assoc [this k v]

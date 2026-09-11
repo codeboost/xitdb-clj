@@ -147,6 +147,10 @@
   (hasheq [this]
     (collection/ordered-hasheq this))
 
+  java.lang.Iterable
+  (iterator [this]
+    (clojure.lang.SeqIterator. (seq this)))
+
   clojure.lang.IPersistentVector
   (assocN [this i val]
     (operations/linked-array-list-assoc-value! wlal i (common/unwrap val))
