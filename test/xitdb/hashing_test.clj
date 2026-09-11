@@ -88,6 +88,23 @@
         (is (empty? @db)))
       (finally (.delete file)))))
 
+(deftest double-keys-survive-reopen-and-match-nested-doubles
+  (let [file (java.io.File/createTempFile "xitdb-double-keys-" ".db")
+        path (.getPath file)]
+    (try
+      (with-open [db (xdb/xit-db path)]
+        (reset! db {1.5 :first -0.0 :zero [2.5] :nested}))
+      (with-open [db (xdb/xit-db path)]
+        (is (= 3 (count @db)))
+        (is (= :first (get @db 1.5)))
+        (is (= :zero (get @db 0.0)))
+        (is (= :nested (get @db [2.5])))
+        (is (nil? (get @db 1)))
+        (swap! db assoc 0.0 :updated)
+        (is (= 3 (count @db)))
+        (is (= :updated (get @db -0.0))))
+      (finally (.delete file)))))
+
 (deftest date-subclass-keys-are-rejected-before-precision-is-lost
   (let [timestamp (java.sql.Timestamp/from (java.time.Instant/parse "2026-01-01T00:00:00.000000001Z"))]
     (with-open [db (xdb/xit-db :memory)]

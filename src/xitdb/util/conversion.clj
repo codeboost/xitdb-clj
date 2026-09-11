@@ -41,7 +41,6 @@
     (instance? java.util.UUID v) :uuid
     (instance? java.time.Instant v) :inst
     (instance? java.util.Date v) :date
-    (coll? v) :coll
     (string? v) :string))
 
 ;; map of logical tag -> string used as formatTag in the Bytes record.
@@ -53,7 +52,6 @@
    :uuid        "uu"
    :inst        "in"
    :date        "da"
-   :coll        "co"
    :string      "st"})
 
 (def true-str "#t")
@@ -73,39 +71,31 @@
     key))
 
 (defn db-key-hash
-  "Returns the stable hash of value `v`, using an independent engine digest."
+  "Returns the stable hash of key `v`, using an independent engine digest.
+  nil hashes to all-zero bytes. Collections and doubles use the canonical
+  encoding in `xitdb.util.key-hash`, which is type-aware and independent of
+  printer settings and iteration order. The remaining scalar key types hash
+  their format tag followed by a text form: epoch milliseconds for Date and
+  `str` for everything else. Throws IllegalArgumentException for other types."
   ^bytes [^Database jdb v]
   (cond
     (nil? v)
     (byte-array (.hashSize (.-header jdb)))
 
-    (coll? v)
+    (or (coll? v) (double? v))
     (key-hash/value-hash jdb v)
 
     :else
     (let [fmt-tag (or (some-> v fmt-tag-keyword fmt-tag-value)
-                      (throw (IllegalArgumentException. (str "Unsupported key type: " (type v)))))]
+                      (throw (IllegalArgumentException. (str "Unsupported key type: " (type v)))))
+          text    (if (instance? java.util.Date v)
+                    (str (key-hash/date-millis v))
+                    (str v))]
       (.hash jdb
         (reify Database$HashFunction
           (update [_ digest]
-            ;; add format tag
             (.update digest (.getBytes fmt-tag "UTF-8"))
-            ;; add the value
-            (cond
-              (validation/lazy-seq? v)
-              (throw (IllegalArgumentException. "Lazy sequences can be infinite and not allowed!"))
-
-              (bytes? v)
-              (.update digest v)
-
-              (instance? Database$Bytes v)
-              (.update digest (.value v))
-
-              (instance? java.util.Date v)
-              (.update digest (.getBytes (str (key-hash/date-millis v)) "UTF-8"))
-
-              :else
-              (.update digest (.getBytes (str v) "UTF-8")))))))))
+            (.update digest (.getBytes text "UTF-8"))))))))
 
 (defn ^Slot primitive-for
   "Converts a Clojure primitive value to its corresponding XitDB representation.
