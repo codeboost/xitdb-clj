@@ -253,7 +253,11 @@
 
   Holds the source's write lock for the whole copy, so `swap!` and `reset!` on
   `xdb` block until compaction finishes. Must not be called from inside a
-  `swap!` or `reset!` on `xdb`; doing so throws IllegalStateException."
+  `swap!` or `reset!` on `xdb`; doing so throws IllegalStateException.
+
+  Refreshes the source writer's header before copying, so a handle opened
+  before another handle initialized the file compacts the current value
+  instead of publishing an empty database."
   [^XITDBDatabase xdb target]
   (let [^ReentrantLock lock (.-lock xdb)]
     (when (.isHeldByCurrentThread lock)
@@ -263,7 +267,9 @@
       (let [target-info       (create-compact-target target)
             ^Core target-core (:core target-info)]
         (try
-          (let [compacted (.compact ^Database (.-rwdb xdb) target-core)]
+          (let [^Database source (.-rwdb xdb)
+                _                (.rootCursor source)
+                compacted        (.compact source target-core)]
             (wrap-db target compacted))
           (catch Throwable t
             ;; Clean up the target without hiding the original error

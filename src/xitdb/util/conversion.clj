@@ -2,6 +2,7 @@
   (:require
     [xitdb.common :as common]
     [xitdb.util.db-context :as db-context]
+    [xitdb.util.key-hash :as key-hash]
     [xitdb.util.sorted-key :as sorted-key]
     [xitdb.util.validation :as validation])
   (:import
@@ -10,9 +11,7 @@
      Database Database$Bytes Database$Float Database$Int Database$HashFunction
      ReadArrayList ReadCursor ReadHashMap ReadHashSet ReadLinkedArrayList ReadSortedMap ReadSortedSet
      Slot Slotted Tag WriteArrayList WriteCountedHashMap WriteCountedHashSet WriteCursor
-     WriteHashMap WriteLinkedArrayList WriteSortedMap WriteSortedSet]
-    [java.io OutputStream OutputStreamWriter]
-    [java.security DigestOutputStream]))
+     WriteHashMap WriteLinkedArrayList WriteSortedMap WriteSortedSet]))
 
 (defn xit-tag->keyword
   "Converts a XitDB Tag enum to a corresponding Clojure keyword."
@@ -42,7 +41,6 @@
     (instance? java.util.UUID v) :uuid
     (instance? java.time.Instant v) :inst
     (instance? java.util.Date v) :date
-    (coll? v) :coll
     (string? v) :string))
 
 ;; map of logical tag -> string used as formatTag in the Bytes record.
@@ -54,7 +52,6 @@
    :uuid        "uu"
    :inst        "in"
    :date        "da"
-   :coll        "co"
    :string      "st"})
 
 (def true-str "#t")
@@ -74,36 +71,31 @@
     key))
 
 (defn db-key-hash
-  "Returns the stable hash of value `v`, using an independent engine digest."
+  "Returns the stable hash of key `v`, using an independent engine digest.
+  nil hashes to all-zero bytes. Collections and doubles use the canonical
+  encoding in `xitdb.util.key-hash`, which is type-aware and independent of
+  printer settings and iteration order. The remaining scalar key types hash
+  their format tag followed by a text form: epoch milliseconds for Date and
+  `str` for everything else. Throws IllegalArgumentException for other types."
   ^bytes [^Database jdb v]
-  (if (nil? v)
+  (cond
+    (nil? v)
     (byte-array (.hashSize (.-header jdb)))
+
+    (or (coll? v) (double? v))
+    (key-hash/value-hash jdb v)
+
+    :else
     (let [fmt-tag (or (some-> v fmt-tag-keyword fmt-tag-value)
-                      (throw (IllegalArgumentException. (str "Unsupported key type: " (type v)))))]
+                      (throw (IllegalArgumentException. (str "Unsupported key type: " (type v)))))
+          text    (if (instance? java.util.Date v)
+                    (str (key-hash/date-millis v))
+                    (str v))]
       (.hash jdb
         (reify Database$HashFunction
           (update [_ digest]
-            ;; add format tag
             (.update digest (.getBytes fmt-tag "UTF-8"))
-            ;; add the value
-            (cond
-              (validation/lazy-seq? v)
-              (throw (IllegalArgumentException. "Lazy sequences can be infinite and not allowed!"))
-
-              (bytes? v)
-              (.update digest v)
-
-              (instance? Database$Bytes v)
-              (.update digest (.value v))
-
-              (coll? v)
-              (with-open [os (DigestOutputStream. (OutputStream/nullOutputStream) digest)]
-                (with-open [writer (OutputStreamWriter. os)]
-                  (binding [*out* writer]
-                    (pr v))))
-
-              :else
-              (.update digest (.getBytes (str v) "UTF-8")))))))))
+            (.update digest (.getBytes text "UTF-8"))))))))
 
 (defn ^Slot primitive-for
   "Converts a Clojure primitive value to its corresponding XitDB representation.

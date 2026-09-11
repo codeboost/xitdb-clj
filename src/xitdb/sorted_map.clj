@@ -10,6 +10,7 @@
   ordered `seq`."
   (:require
     [xitdb.common :as common]
+    [xitdb.util.collection :as collection]
     [xitdb.util.sorted-key :as sorted-key]
     [xitdb.util.sorted-operations :as sorted-ops])
   (:import
@@ -67,8 +68,47 @@
     (sorted-map-by sorted-key/key-comparator))
 
   (equiv [this other]
-    (and (instance? clojure.lang.IPersistentMap other)
-         (= (into {} this) (into {} other))))
+    (collection/map-equiv? this other))
+
+  clojure.lang.MapEquivalence
+
+  clojure.lang.IHashEq
+  (hasheq [this]
+    (collection/unordered-hasheq this))
+
+  java.util.Map
+  (size [this]
+    (count this))
+
+  (isEmpty [this]
+    (zero? (count this)))
+
+  (get [this k]
+    (.valAt this k))
+
+  (containsValue [this v]
+    (boolean (some #(clojure.lang.Util/equals v (val %)) (seq this))))
+
+  (keySet [this]
+    (collection/map-key-set this))
+
+  (values [this]
+    (collection/map-values this))
+
+  (entrySet [this]
+    (collection/map-entry-set this))
+
+  (put [_ _ _]
+    (collection/unsupported-mutation!))
+
+  (remove [_ _]
+    (collection/unsupported-mutation!))
+
+  (putAll [_ _]
+    (collection/unsupported-mutation!))
+
+  (clear [_]
+    (collection/unsupported-mutation!))
 
   clojure.lang.Seqable
   (seq [_]
@@ -147,6 +187,12 @@
               (assoc m k v)) (sorted-map-by sorted-key/key-comparator) (seq this)))
 
   Object
+  (equals [this other]
+    (clojure.lang.APersistentMap/mapEquals this other))
+
+  (hashCode [this]
+    (collection/map-hash this))
+
   (toString [this]
     (str (into (sorted-map-by sorted-key/key-comparator) this))))
 
@@ -179,9 +225,51 @@
     this)
 
   (equiv [this other]
-    (and (= (count this) (count other))
-         (every? (fn [[k v]] (= v (get other k ::not-found)))
-                 (seq this))))
+    (collection/map-equiv? this other))
+
+  clojure.lang.MapEquivalence
+
+  clojure.lang.IHashEq
+  (hasheq [this]
+    (collection/unordered-hasheq this))
+
+  java.util.Map
+  (size [this]
+    (count this))
+
+  (isEmpty [this]
+    (zero? (count this)))
+
+  (get [this k]
+    (.valAt this k))
+
+  (containsValue [this v]
+    (boolean (some #(clojure.lang.Util/equals v (val %)) (seq this))))
+
+  (keySet [this]
+    (collection/map-key-set this))
+
+  (values [this]
+    (collection/map-values this))
+
+  (entrySet [this]
+    (collection/map-entry-set this))
+
+  (put [_ _ _]
+    (collection/unsupported-mutation!))
+
+  (remove [_ _]
+    (collection/unsupported-mutation!))
+
+  (putAll [_ _]
+    (collection/unsupported-mutation!))
+
+  (clear [_]
+    (collection/unsupported-mutation!))
+
+  java.lang.Iterable
+  (iterator [this]
+    (clojure.lang.SeqIterator. (seq this)))
 
   clojure.lang.Associative
   (assoc [this k v]
@@ -268,6 +356,12 @@
     wsm)
 
   Object
+  (equals [this other]
+    (clojure.lang.APersistentMap/mapEquals this other))
+
+  (hashCode [this]
+    (collection/map-hash this))
+
   (toString [this]
     (str "XITDBWriteSortedMap")))
 
