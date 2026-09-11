@@ -1,6 +1,7 @@
 (ns xitdb.linked-list
   (:require
     [xitdb.common :as common]
+    [xitdb.util.collection :as collection]
     [xitdb.util.conversion :as conversion]
     [xitdb.util.operations :as operations])
   (:import
@@ -26,9 +27,11 @@
     '())
 
   (equiv [this other]
-    (and (sequential? other)
-         (= (count this) (count other))
-         (every? identity (map = this other))))
+    (collection/sequence-equal? this other true))
+
+  clojure.lang.IHashEq
+  (hasheq [this]
+    (collection/ordered-hasheq this))
 
   clojure.lang.Sequential
 
@@ -107,6 +110,12 @@
                      (conj a v)) [] (seq this))))
 
   Object
+  (equals [this other]
+    (collection/sequence-equal? this other false))
+
+  (hashCode [this]
+    (collection/ordered-hash this))
+
   (toString [this]
     (pr-str (into [] this))))
 
@@ -132,11 +141,11 @@
     this)
 
   (equiv [this other]
-    (if (instance? XITDBWriteLinkedArrayList other)
-      (and (= (count this) (count other))
-           (every? (fn [i] (= (get this i) (get other i)))
-                   (range (count this))))
-      false))
+    (collection/sequence-equal? this other true))
+
+  clojure.lang.IHashEq
+  (hasheq [this]
+    (collection/ordered-hasheq this))
 
   clojure.lang.IPersistentVector
   (assocN [this i val]
@@ -231,6 +240,12 @@
     wlal)
 
   Object
+  (equals [this other]
+    (collection/sequence-equal? this other false))
+
+  (hashCode [this]
+    (collection/ordered-hash this))
+
   (toString [this]
     (str "XITDBWriteLinkedArrayList")))
 

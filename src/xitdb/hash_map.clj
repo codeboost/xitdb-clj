@@ -1,6 +1,7 @@
 (ns xitdb.hash-map
   (:require
     [xitdb.common :as common]
+    [xitdb.util.collection :as collection]
     [xitdb.util.conversion :as conversion]
     [xitdb.util.operations :as operations])
   (:import
@@ -52,8 +53,47 @@
     {})
 
   (equiv [this other]
-    (and (instance? clojure.lang.IPersistentMap other)
-         (= (into {} this) (into {} other))))
+    (collection/map-equiv? this other))
+
+  clojure.lang.MapEquivalence
+
+  clojure.lang.IHashEq
+  (hasheq [this]
+    (collection/unordered-hasheq this))
+
+  java.util.Map
+  (size [this]
+    (count this))
+
+  (isEmpty [this]
+    (zero? (count this)))
+
+  (get [this k]
+    (.valAt this k))
+
+  (containsValue [this v]
+    (boolean (some #(clojure.lang.Util/equals v (val %)) (seq this))))
+
+  (keySet [this]
+    (.keySet ^java.util.Map (into {} this)))
+
+  (values [this]
+    (.values ^java.util.Map (into {} this)))
+
+  (entrySet [this]
+    (.entrySet ^java.util.Map (into {} this)))
+
+  (put [_ _ _]
+    (collection/unsupported-mutation!))
+
+  (remove [_ _]
+    (collection/unsupported-mutation!))
+
+  (putAll [_ _]
+    (collection/unsupported-mutation!))
+
+  (clear [_]
+    (collection/unsupported-mutation!))
 
   clojure.lang.Seqable
   (seq [_]
@@ -100,6 +140,12 @@
               (assoc m k v)) {} (seq this)))
 
   Object
+  (equals [this other]
+    (clojure.lang.APersistentMap/mapEquals this other))
+
+  (hashCode [this]
+    (collection/map-hash this))
+
   (toString [this]
     (str (into {} this))))
 
@@ -135,9 +181,48 @@
     this)
 
   (equiv [this other]
-    (and (= (count this) (count other))
-         (every? (fn [[k v]] (= v (get other k ::not-found)))
-                 (seq this))))
+    (collection/map-equiv? this other))
+
+  clojure.lang.MapEquivalence
+
+  clojure.lang.IHashEq
+  (hasheq [this]
+    (collection/unordered-hasheq this))
+
+  java.util.Map
+  (size [this]
+    (count this))
+
+  (isEmpty [this]
+    (zero? (count this)))
+
+  (get [this k]
+    (.valAt this k))
+
+  (containsValue [this v]
+    (boolean (some #(clojure.lang.Util/equals v (val %)) (seq this))))
+
+  (keySet [this]
+    (.keySet ^java.util.Map (into {} this)))
+
+  (values [this]
+    (.values ^java.util.Map (into {} this)))
+
+  (entrySet [this]
+    (.entrySet ^java.util.Map (into {} this)))
+
+  (put [_ _ _]
+    (collection/unsupported-mutation!))
+
+  (remove [_ _]
+    (collection/unsupported-mutation!))
+
+  (putAll [_ _]
+    (collection/unsupported-mutation!))
+
+  (clear [_]
+    (collection/unsupported-mutation!))
+
   clojure.lang.Associative
   (assoc [this k v]
     (operations/map-assoc-value! whm k (common/unwrap v))
@@ -185,6 +270,12 @@
     whm)
 
   Object
+  (equals [this other]
+    (clojure.lang.APersistentMap/mapEquals this other))
+
+  (hashCode [this]
+    (collection/map-hash this))
+
   (toString [this]
     (str "XITDBWriteHashMap")))
 

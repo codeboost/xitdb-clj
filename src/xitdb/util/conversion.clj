@@ -2,6 +2,7 @@
   (:require
     [xitdb.common :as common]
     [xitdb.util.db-context :as db-context]
+    [xitdb.util.key-hash :as key-hash]
     [xitdb.util.sorted-key :as sorted-key]
     [xitdb.util.validation :as validation])
   (:import
@@ -10,9 +11,7 @@
      Database Database$Bytes Database$Float Database$Int Database$HashFunction
      ReadArrayList ReadCursor ReadHashMap ReadHashSet ReadLinkedArrayList ReadSortedMap ReadSortedSet
      Slot Slotted Tag WriteArrayList WriteCountedHashMap WriteCountedHashSet WriteCursor
-     WriteHashMap WriteLinkedArrayList WriteSortedMap WriteSortedSet]
-    [java.io OutputStream OutputStreamWriter]
-    [java.security DigestOutputStream]))
+     WriteHashMap WriteLinkedArrayList WriteSortedMap WriteSortedSet]))
 
 (defn xit-tag->keyword
   "Converts a XitDB Tag enum to a corresponding Clojure keyword."
@@ -76,8 +75,14 @@
 (defn db-key-hash
   "Returns the stable hash of value `v`, using an independent engine digest."
   ^bytes [^Database jdb v]
-  (if (nil? v)
+  (cond
+    (nil? v)
     (byte-array (.hashSize (.-header jdb)))
+
+    (coll? v)
+    (key-hash/value-hash jdb v)
+
+    :else
     (let [fmt-tag (or (some-> v fmt-tag-keyword fmt-tag-value)
                       (throw (IllegalArgumentException. (str "Unsupported key type: " (type v)))))]
       (.hash jdb
@@ -96,11 +101,8 @@
               (instance? Database$Bytes v)
               (.update digest (.value v))
 
-              (coll? v)
-              (with-open [os (DigestOutputStream. (OutputStream/nullOutputStream) digest)]
-                (with-open [writer (OutputStreamWriter. os)]
-                  (binding [*out* writer]
-                    (pr v))))
+              (instance? java.util.Date v)
+              (.update digest (.getBytes (str (key-hash/date-millis v)) "UTF-8"))
 
               :else
               (.update digest (.getBytes (str v) "UTF-8")))))))))

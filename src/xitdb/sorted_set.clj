@@ -8,6 +8,7 @@
   comparison over order-preserving encoded members (see `xitdb.util.sorted-key`)."
   (:require
     [xitdb.common :as common]
+    [xitdb.util.collection :as collection]
     [xitdb.util.sorted-key :as sorted-key]
     [xitdb.util.sorted-operations :as sorted-ops])
   (:import
@@ -44,13 +45,49 @@
   (empty [this]
     (sorted-set-by sorted-key/key-comparator))
 
-  (equiv [this other]
-    (and (instance? clojure.lang.IPersistentSet other)
-         (= (count this) (count other))
-         (every? #(.contains this %) other)))
-
   (count [_]
     (sorted-ops/sset-item-count rss))
+
+  (equiv [this other]
+    (clojure.lang.APersistentSet/setEquals this other))
+
+  clojure.lang.IHashEq
+  (hasheq [this]
+    (collection/unordered-hasheq this))
+
+  java.util.Set
+  (size [this]
+    (count this))
+
+  (isEmpty [this]
+    (zero? (count this)))
+
+  (containsAll [this other]
+    (every? #(.contains this %) other))
+
+  (^objects toArray [this]
+    (to-array (seq this)))
+
+  (^objects toArray [this ^objects array]
+    (.toArray ^java.util.Collection (vec (seq this)) array))
+
+  (add [_ _]
+    (collection/unsupported-mutation!))
+
+  (remove [_ _]
+    (collection/unsupported-mutation!))
+
+  (addAll [_ _]
+    (collection/unsupported-mutation!))
+
+  (retainAll [_ _]
+    (collection/unsupported-mutation!))
+
+  (removeAll [_ _]
+    (collection/unsupported-mutation!))
+
+  (clear [_]
+    (collection/unsupported-mutation!))
 
   clojure.lang.Seqable
   (seq [_]
@@ -131,6 +168,12 @@
     (into (sorted-set-by sorted-key/key-comparator) (seq this)))
 
   Object
+  (equals [this other]
+    (clojure.lang.APersistentSet/setEquals this other))
+
+  (hashCode [this]
+    (collection/set-hash this))
+
   (toString [this]
     (str (into (sorted-set-by sorted-key/key-comparator) this))))
 
@@ -162,13 +205,53 @@
     (sorted-ops/sset-empty! wss)
     this)
 
-  (equiv [this other]
-    (and (instance? clojure.lang.IPersistentSet other)
-         (= (count this) (count other))
-         (every? #(.contains this %) other)))
-
   (count [_]
     (sorted-ops/sset-item-count wss))
+
+  (equiv [this other]
+    (clojure.lang.APersistentSet/setEquals this other))
+
+  clojure.lang.IHashEq
+  (hasheq [this]
+    (collection/unordered-hasheq this))
+
+  java.util.Set
+  (size [this]
+    (count this))
+
+  (isEmpty [this]
+    (zero? (count this)))
+
+  (containsAll [this other]
+    (every? #(.contains this %) other))
+
+  (^objects toArray [this]
+    (to-array (seq this)))
+
+  (^objects toArray [this ^objects array]
+    (.toArray ^java.util.Collection (vec (seq this)) array))
+
+  (add [_ _]
+    (collection/unsupported-mutation!))
+
+  (remove [_ _]
+    (collection/unsupported-mutation!))
+
+  (addAll [_ _]
+    (collection/unsupported-mutation!))
+
+  (retainAll [_ _]
+    (collection/unsupported-mutation!))
+
+  (removeAll [_ _]
+    (collection/unsupported-mutation!))
+
+  (clear [_]
+    (collection/unsupported-mutation!))
+
+  java.lang.Iterable
+  (iterator [this]
+    (clojure.lang.SeqIterator. (seq this)))
 
   clojure.lang.Seqable
   (seq [_]
@@ -226,6 +309,12 @@
     wss)
 
   Object
+  (equals [this other]
+    (clojure.lang.APersistentSet/setEquals this other))
+
+  (hashCode [this]
+    (collection/set-hash this))
+
   (toString [_]
     (str "XITDBWriteSortedSet")))
 

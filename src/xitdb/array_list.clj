@@ -1,6 +1,7 @@
 (ns xitdb.array-list
   (:require
     [xitdb.common :as common]
+    [xitdb.util.collection :as collection]
     [xitdb.util.operations :as operations])
   (:import
     (io.github.radarroark.xitdb ReadArrayList ReadCursor WriteArrayList WriteCursor)))
@@ -25,9 +26,11 @@
     [])
 
   (equiv [this other]
-    (and (sequential? other)
-         (= (count this) (count other))
-         (every? identity (map = this other))))
+    (collection/sequence-equal? this other true))
+
+  clojure.lang.IHashEq
+  (hasheq [this]
+    (collection/ordered-hasheq this))
 
   clojure.lang.Sequential
 
@@ -136,6 +139,12 @@
               (conj a v)) [] (seq this)))
 
   Object
+  (equals [this other]
+    (collection/sequence-equal? this other false))
+
+  (hashCode [this]
+    (collection/ordered-hash this))
+
   (toString [this]
     (pr-str (into [] this))))
 
@@ -159,11 +168,11 @@
     this)
 
   (equiv [this other]
-    (if (instance? XITDBWriteArrayList other)
-      (and (= (count this) (count other))
-           (every? (fn [i] (= (get this i) (get other i)))
-                   (range (count this))))
-      false))
+    (collection/sequence-equal? this other true))
+
+  clojure.lang.IHashEq
+  (hasheq [this]
+    (collection/ordered-hasheq this))
 
   clojure.lang.Indexed
   (nth [this i]
@@ -249,6 +258,12 @@
     wal)
 
   Object
+  (equals [this other]
+    (collection/sequence-equal? this other false))
+
+  (hashCode [this]
+    (collection/ordered-hash this))
+
   (toString [this]
     (str "XITDBWriteArrayList")))
 

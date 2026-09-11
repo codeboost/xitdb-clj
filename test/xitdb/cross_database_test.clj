@@ -63,6 +63,6 @@
     (reset! source {[1 2] :v {:k 1} #{:s} :sorted (sorted-map 3 {[4] 5})})
     (let [m (xdb/materialize @source)]
       (is (every? #(instance? clojure.lang.PersistentVector %)
-                  [(-> m keys first) (-> m :sorted (get 3) keys first)]))
+                  [(key (find m [1 2])) (-> m :sorted (get 3) keys first)]))
       (reset! target m)
       (is (= {[1 2] :v {:k 1} #{:s} :sorted {3 {[4] 5}}} (xdb/materialize @target))))))
