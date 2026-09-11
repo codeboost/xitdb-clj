@@ -235,3 +235,17 @@
     (with-open [reopened (xdb/xit-db source-path)
                 compacted (xdb/compact reopened target)]
       (is (= {:data "requires reading the source file"} (xdb/materialize @compacted))))))
+
+(deftest compact-refreshes-a-handle-opened-before-initialization-test
+  (let [source   (new-path)
+        target   (new-path)
+        expected {:important [1 2 3]}]
+    (with-open [a (xdb/xit-db source)
+                b (xdb/xit-db source)]
+      (reset! a expected)
+      (is (= expected (xdb/materialize @b)))
+      (with-open [compacted (xdb/compact b target)]
+        (is (= 1 (count compacted)))
+        (is (= expected (xdb/materialize @compacted)))))
+    (with-open [reopened (xdb/xit-db target)]
+      (is (= expected (xdb/materialize @reopened))))))

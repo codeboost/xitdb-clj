@@ -1,7 +1,8 @@
 (ns xitdb.util.key-hash
-  "Canonical hashes for collection-valued keys. Sequence order matters; map
-  and set order does not. Native and database-backed collections share the
-  same encoding. Printer settings and collection hashCode are never consulted."
+  "Canonical hashes for collection-valued and double keys. Sequence order
+  matters; map and set order does not. Native and database-backed collections
+  share the same encoding. Printer settings and collection hashCode are never
+  consulted."
   (:require [xitdb.util.validation :as validation])
   (:import [io.github.radarroark.xitdb Database Database$HashFunction]
            [java.io DataOutputStream OutputStream]
@@ -63,7 +64,8 @@
 (defn- write-value!
   "Writes `v`'s canonical type tag and payload to the hash input stream `out`.
   Scalars use binary fields; collections contribute recursively computed child
-  digests. Normalizes equal numeric representations and list/vector shapes.
+  digests. Normalizes equal numeric representations and list/vector shapes;
+  positive and negative zero hash alike because Clojure treats them as equal.
   Rejects lazy sequences, unsupported types, and Date subclasses."
   [db ^DataOutputStream out v]
   (cond
@@ -86,7 +88,6 @@
     (float? v)
     (do
       (.writeByte out tag-float)
-      ;; Clojure considers positive and negative zero equal.
       (.writeDouble out (if (zero? v) 0.0 (double v))))
 
     (char? v)
