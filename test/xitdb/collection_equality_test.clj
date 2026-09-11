@@ -69,3 +69,61 @@
                    (is (= (hash expected) (hash changed)))
                    (is (= (.hashCode expected) (.hashCode changed)))
                    changed))))))
+
+(deftest java-map-views-follow-seq-order-and-check-membership
+  (let [entries (map (fn [i] [i (* 10 i)]) (shuffle (range 20)))]
+    (doseq [native [(into {} entries) (into (sorted-map) entries)]]
+      (with-open [d (db/xit-db :memory)]
+        (reset! d native)
+        (let [view  @d
+              ks    (.keySet view)
+              vs    (.values view)
+              es    (.entrySet view)]
+          (is (= (keys view) (seq ks)))
+          (is (= (vals view) (seq vs)))
+          (is (= (seq view) (seq es)))
+          (is (= 20 (.size ks) (.size vs) (.size es)))
+          (is (.contains ks 7))
+          (is (not (.contains ks 99)))
+          (is (.contains vs 70))
+          (is (not (.contains vs 7)))
+          (is (.contains es (clojure.lang.MapEntry. 7 70)))
+          (is (not (.contains es (clojure.lang.MapEntry. 7 71))))
+          (is (not (.contains es 7)))
+          (is (= (set (keys native)) (set ks)))
+          (is (thrown? UnsupportedOperationException (.add ks 1)))))))
+  (with-open [d (db/xit-db :memory)]
+    (reset! d (into (sorted-map) (map (fn [i] [i i]) (shuffle (range 20)))))
+    (is (= (range 20) (seq (.keySet @d))))
+    (is (= (range 20) (map key (.entrySet @d))))))
+
+(deftest java-map-views-stay-live-inside-transactions
+  (doseq [native [{:a 1} (sorted-map :a 1)]]
+    (with-open [d (db/xit-db :memory)]
+      (reset! d native)
+      (swap! d (fn [view]
+                 (let [ks (.keySet view)
+                       es (.entrySet view)]
+                   (is (= #{:a} (set ks)))
+                   (assoc view :b 2)
+                   (is (= 2 (.size ks) (.size es)))
+                   (is (= #{:a :b} (set ks)))
+                   (is (.contains es (clojure.lang.MapEntry. :b 2)))
+                   (dissoc view :a)
+                   (is (= #{:b} (set ks)))
+                   view)))
+      (is (= {:b 2} (db/materialize @d))))))
+
+(deftest write-wrappers-are-iterable-inside-transactions
+  (doseq [native [{:x 1 :y 2} (sorted-map :x 1 :y 2) '(1 2 3)]]
+    (with-open [d (db/xit-db :memory)]
+      (reset! d native)
+      (swap! d (fn [view]
+                 (let [expected (vec (seq view))]
+                   (is (= (set native) (set expected)))
+                   (is (= expected (into [] view)))
+                   (is (= expected (reduce conj [] view)))
+                   (is (= expected (iterator-seq (.iterator view))))
+                   (is (thrown? UnsupportedOperationException
+                                (let [it (.iterator view)] (.next it) (.remove it))))
+                   view))))))
