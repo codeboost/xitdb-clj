@@ -32,6 +32,76 @@
   (hasheq [this]
     (collection/ordered-hasheq this))
 
+  java.util.List
+  (size [this]
+    (count this))
+
+  (isEmpty [this]
+    (zero? (count this)))
+
+  (contains [this v]
+    (.contains (collection/list-view this) v))
+
+  (containsAll [this values]
+    (.containsAll (collection/list-view this) values))
+
+  (iterator [this]
+    (clojure.lang.SeqIterator. (seq this)))
+
+  (^objects toArray [this]
+    (.toArray (collection/list-view this)))
+
+  (^objects toArray [this ^objects array]
+    (.toArray (collection/list-view this) array))
+
+  (get [this i]
+    (collection/list-get this i))
+
+  (indexOf [this v]
+    (.indexOf (collection/list-view this) v))
+
+  (lastIndexOf [this v]
+    (.lastIndexOf (collection/list-view this) v))
+
+  (listIterator [this]
+    (.listIterator (collection/list-view this)))
+
+  (listIterator [this i]
+    (.listIterator (collection/list-view this) i))
+
+  (subList [this from to]
+    (.subList (collection/list-view this) from to))
+
+  (add [_ _]
+    (collection/unsupported-mutation!))
+
+  (add [_ _ _]
+    (collection/unsupported-mutation!))
+
+  (set [_ _ _]
+    (collection/unsupported-mutation!))
+
+  (^Object remove [_ ^int _]
+    (collection/unsupported-mutation!))
+
+  (^boolean remove [_ ^Object _]
+    (collection/unsupported-mutation!))
+
+  (addAll [_ _]
+    (collection/unsupported-mutation!))
+
+  (addAll [_ _ _]
+    (collection/unsupported-mutation!))
+
+  (removeAll [_ _]
+    (collection/unsupported-mutation!))
+
+  (retainAll [_ _]
+    (collection/unsupported-mutation!))
+
+  (clear [_]
+    (collection/unsupported-mutation!))
+
   clojure.lang.Sequential
 
   clojure.lang.Associative
@@ -105,21 +175,6 @@
   (kv-reduce [this f init]
     (operations/array-kv-reduce ral #(common/-read-from-cursor %) f init))
 
-  java.util.Collection
-  (^objects toArray [this]
-    (to-array (into [] this)))
-
-  (^objects toArray [this ^objects array]
-    (let [len (count this)
-          ^objects result (if (or (nil? array) (< (alength array) len))
-                            (make-array Object len)
-                            array)]
-      (dotimes [i len]
-        (aset result i (nth this i)))
-      (when (> (alength result) len)
-        (aset result len nil))
-      result))
-
   common/ISlot
   (-slot [this]
     (-> ral .cursor .slot))
@@ -173,6 +228,76 @@
   clojure.lang.IHashEq
   (hasheq [this]
     (collection/ordered-hasheq this))
+
+  java.util.List
+  (size [this]
+    (count this))
+
+  (isEmpty [this]
+    (zero? (count this)))
+
+  (contains [this v]
+    (.contains (collection/list-view this) v))
+
+  (containsAll [this values]
+    (.containsAll (collection/list-view this) values))
+
+  (iterator [this]
+    (clojure.lang.SeqIterator. (seq this)))
+
+  (^objects toArray [this]
+    (.toArray (collection/list-view this)))
+
+  (^objects toArray [this ^objects array]
+    (.toArray (collection/list-view this) array))
+
+  (get [this i]
+    (collection/list-get this i))
+
+  (indexOf [this v]
+    (.indexOf (collection/list-view this) v))
+
+  (lastIndexOf [this v]
+    (.lastIndexOf (collection/list-view this) v))
+
+  (listIterator [this]
+    (.listIterator (collection/list-view this)))
+
+  (listIterator [this i]
+    (.listIterator (collection/list-view this) i))
+
+  (subList [this from to]
+    (.subList (collection/list-view this) from to))
+
+  (add [_ _]
+    (collection/unsupported-mutation!))
+
+  (add [_ _ _]
+    (collection/unsupported-mutation!))
+
+  (set [_ _ _]
+    (collection/unsupported-mutation!))
+
+  (^Object remove [_ ^int _]
+    (collection/unsupported-mutation!))
+
+  (^boolean remove [_ ^Object _]
+    (collection/unsupported-mutation!))
+
+  (addAll [_ _]
+    (collection/unsupported-mutation!))
+
+  (addAll [_ _ _]
+    (collection/unsupported-mutation!))
+
+  (removeAll [_ _]
+    (collection/unsupported-mutation!))
+
+  (retainAll [_ _]
+    (collection/unsupported-mutation!))
+
+  (clear [_]
+    (collection/unsupported-mutation!))
 
   clojure.lang.Indexed
   (nth [this i]

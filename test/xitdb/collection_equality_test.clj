@@ -27,6 +27,23 @@
                  (assoc view :b 2)))
       (is (= {:a 1 :b 2} (db/materialize @d))))))
 
+(defn- check-java-list-equality [view]
+  (let [java-list (java.util.ArrayList. [1 2])]
+    (is (.equals view java-list))
+    (is (.equals java-list view))
+    (is (= (.hashCode view) (.hashCode java-list)))
+    (is (.contains (java.util.HashSet. [view]) java-list))
+    (is (.contains (java.util.HashSet. [java-list]) view))))
+
+(deftest java-list-equality-is-symmetric-for-read-and-write-sequences
+  (doseq [native [[1 2] '(1 2)]]
+    (with-open [d (db/xit-db :memory)]
+      (reset! d native)
+      (check-java-list-equality @d)
+      (swap! d (fn [view]
+                 (check-java-list-equality view)
+                 view)))))
+
 (deftest stored-sequences-work-as-query-keys
   (doseq [make-value [vector list]]
     (with-open [d (db/xit-db :memory)]
