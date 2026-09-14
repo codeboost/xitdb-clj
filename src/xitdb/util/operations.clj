@@ -141,11 +141,14 @@
     whm))
 
 (defn map-contains-key?
-  "Checks if a WriteHashMap contains the specified key.
-  Returns true if the key exists, false otherwise."
+  "Checks membership, treating unsupported keys as absent. Native and Java
+  map equality call containsKey with keys the database cannot store. Only
+  encoding errors are suppressed; storage failures still propagate."
   [^ReadHashMap whm key]
-  (let [key-hash (conversion/db-key-hash (-> whm .cursor .db) key)]
-    (not (nil? (.getKeyCursor whm key-hash)))))
+  (let [key-hash (try
+                   (conversion/db-key-hash (-> whm .cursor .db) key)
+                   (catch IllegalArgumentException _ nil))]
+    (and (some? key-hash) (some? (.getKeyCursor whm key-hash)))))
 
 (defn map-item-count-iterated
   "Returns the number of keys in the map by iterating.

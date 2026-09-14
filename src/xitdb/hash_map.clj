@@ -69,7 +69,7 @@
     (zero? (count this)))
 
   (get [this k]
-    (.valAt this k))
+    (some-> (.entryAt this k) val))
 
   (containsValue [this v]
     (boolean (some #(clojure.lang.Util/equals v (val %)) (seq this))))
@@ -197,7 +197,7 @@
     (zero? (count this)))
 
   (get [this k]
-    (.valAt this k))
+    (some-> (.entryAt this k) val))
 
   (containsValue [this v]
     (boolean (some #(clojure.lang.Util/equals v (val %)) (seq this))))

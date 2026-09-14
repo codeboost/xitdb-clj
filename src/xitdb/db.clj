@@ -21,6 +21,12 @@
 ;; Avoid extra require in your ns
 (def materialize common/materialize)
 
+(def ^:private key-hash-format-id
+  ;; Version the Clojure key encoding, not just the underlying SHA-1 digest.
+  ;; Unversioned files used printer-dependent hashes and cannot be reopened
+  ;; safely with the canonical encoding. Compaction preserves this header ID.
+  (Hasher/stringToId "clj1"))
+
 (defn open-database
   "Opens database `filename`.
   If `filename` is `:memory`, returns a memory based db.
@@ -30,7 +36,13 @@
                      (CoreMemory. (RandomAccessMemory.))
                      (CoreBufferedFile. (RandomAccessBufferedFile. (File. ^String filename) open-mode)))]
     (try
-      (Database. core (Hasher. (MessageDigest/getInstance "SHA-1")))
+      (let [db (Database. core (Hasher. (MessageDigest/getInstance "SHA-1") key-hash-format-id))]
+        (when-not (= key-hash-format-id (.hashId (.-header db)))
+          (throw (IllegalArgumentException.
+                   (str "Unsupported key hash format. Export the data using the xitdb-clj version "
+                        "that created this file, then import it into a new database. "
+                        "The original file has not been modified."))))
+        db)
       (catch Throwable t
         (.close core)
         (throw t)))))

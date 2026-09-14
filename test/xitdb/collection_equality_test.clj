@@ -2,6 +2,31 @@
   (:require [clojure.test :refer :all]
             [xitdb.db :as db]))
 
+(defn- check-unsupported-map-keys [view]
+  (doseq [k ['a (Object.) 1/2 ['a]]]
+    (let [native {k 1}
+          java-map (java.util.HashMap. native)]
+      (is (false? (= native view)))
+      (is (false? (= view native)))
+      (is (false? (.equals native view)))
+      (is (false? (.equals view native)))
+      (is (false? (.equals java-map view)))
+      (is (false? (.equals view java-map)))
+      (is (false? (.containsKey ^java.util.Map view k)))
+      (is (nil? (.get ^java.util.Map view k)))))
+  (is (.containsKey ^java.util.Map view :a))
+  (is (= 1 (.get ^java.util.Map view :a))))
+
+(deftest unsupported-map-keys-compare-unequal-in-both-directions
+  (doseq [native [{:a 1} (sorted-map :a 1)]]
+    (with-open [d (db/xit-db :memory)]
+      (reset! d native)
+      (check-unsupported-map-keys @d)
+      (swap! d (fn [view]
+                 (check-unsupported-map-keys view)
+                 (assoc view :b 2)))
+      (is (= {:a 1 :b 2} (db/materialize @d))))))
+
 (deftest stored-sequences-work-as-query-keys
   (doseq [make-value [vector list]]
     (with-open [d (db/xit-db :memory)]
