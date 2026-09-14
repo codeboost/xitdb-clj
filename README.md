@@ -60,6 +60,16 @@ For the programmer, a `xitdb` database is like a Clojure atom.
 ;; => 31
 ```
 
+Database files now record the Clojure key-hash format in their header (`clj1`).
+Older, unversioned files are rejected on open: their collection and Date key
+hashes are incompatible with the current encoding. Before upgrading, export
+the data using the version that created the file (`materialize` reads entries
+without looking them up by hash), then import it into a **new** database with
+the current version. Export each `deref-at` value in order if history must be
+preserved. Use a serializer that preserves your value types and sorted
+collections; plain EDN does not round-trip every supported type. Opening an
+incompatible file does not modify it, and compaction does not migrate hashes.
+
 ## Data structures are read lazily from the database
 
 Reading from the database returns wrappers around cursors in the database file:

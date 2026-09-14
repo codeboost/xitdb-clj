@@ -3,6 +3,7 @@
 .nrepl-port
 *.iml
 *.db
+!test-resources/legacy-key-hashes.db
 .DS_Store
 *.xdb
 target/
