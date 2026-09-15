@@ -63,6 +63,27 @@
                  view))
       (is (= "updated" (first @d))))))
 
+(deftest java-iterators-stay-live-inside-transactions
+  (doseq [native [[1 2 3] '(1 2 3)]]
+    (with-open [d (xdb/xit-db :memory)]
+      (reset! d native)
+      (swap! d (fn [^java.util.List view]
+                 (let [iterators [(.iterator view)
+                                  (.listIterator view)
+                                  (.iterator (.subList view 0 3))]]
+                   (doseq [[i value] [[0 10] [1 nil] [2 30]]]
+                     (doseq [^java.util.Iterator it iterators]
+                       (is (.hasNext it)))
+                     (assoc view i value)
+                     (doseq [^java.util.Iterator it iterators]
+                       (is (= value (.next it)))))
+                   (doseq [^java.util.Iterator it iterators]
+                     (is (false? (.hasNext it)))
+                     (is (thrown? java.util.NoSuchElementException (.next it)))
+                     (is (thrown? UnsupportedOperationException (.remove it)))))
+                 view))
+      (is (= [10 nil 30] (xdb/materialize @d))))))
+
 (deftest java-arraylist-storage-test
   (testing "java.util.ArrayList is stored as XITDB ArrayList"
     (with-db [db (tu/test-db)]
