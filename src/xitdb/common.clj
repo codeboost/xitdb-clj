@@ -1,5 +1,5 @@
 (ns xitdb.common
-  (:import [io.github.radarroark.xitdb ReadCursor]))
+  (:import [io.github.radarroark.xitdb Slot]))
 
 (defprotocol ISlot
   (-slot [this]))
@@ -47,12 +47,11 @@
     :else v))
 
 (defn materialize
-  "converts collections to native values, rejecting cyclic database references."
+  "Converts collections to native values, rejecting cyclic database references."
   [v]
   (if (wrapper? v)
-    (let [^ReadCursor cursor (-> v -unwrap .cursor)
-          slot (.slot cursor)
-          offset (.valueOffset slot)]
+    (let [^Slot slot (-slot v)
+          offset     (.valueOffset slot)]
       (if (some? offset)
         (let [reference [(.tag slot) offset]]
           (when (contains? *materializing* reference)

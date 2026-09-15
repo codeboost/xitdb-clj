@@ -147,6 +147,14 @@
     (catch Throwable close-error
       (.addSuppressed failure close-error))))
 
+(defn- delete-after-failure!
+  "Deletes a file without replacing the failure that triggered cleanup."
+  [^File file ^Throwable failure]
+  (try
+    (Files/deleteIfExists (.toPath file))
+    (catch Throwable delete-error
+      (.addSuppressed failure delete-error))))
+
 
 (defn ^ReadArrayList read-history
   "Returns the read only transaction history array."
@@ -285,17 +293,16 @@
                 compacted        (try
                                    (with-open [offset-map (FileOffsetMap. (RandomAccessFile. offsets-file "rw"))]
                                      (.compact source target-core offset-map))
-                                   (finally
-                                     (Files/deleteIfExists (.toPath offsets-file))))]
+                                   (catch Throwable t
+                                     (delete-after-failure! offsets-file t)
+                                     (throw t)))]
+            (Files/deleteIfExists (.toPath offsets-file))
             (wrap-db target compacted))
           (catch Throwable t
             ;; Clean up the target without hiding the original error
             (close-after-failure! target-core t)
             (when-let [^File file (:file target-info)]
-              (try
-                (Files/deleteIfExists (.toPath file))
-                (catch Throwable delete-error
-                  (.addSuppressed ^Throwable t delete-error))))
+              (delete-after-failure! file t))
             (throw t))))
       (finally
         (.unlock lock)))))
