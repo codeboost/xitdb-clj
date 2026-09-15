@@ -1,5 +1,4 @@
 (ns xitdb.common
-  (:require [xitdb.util.db-context :as db-context])
   (:import [io.github.radarroark.xitdb ReadCursor]))
 
 (defprotocol ISlot
@@ -55,7 +54,7 @@
           slot (.slot cursor)
           offset (.valueOffset slot)]
       (if (some? offset)
-        (let [reference [(db-context/reader-database (.-db cursor)) (.tag slot) offset]]
+        (let [reference [(.tag slot) offset]]
           (when (contains? *materializing* reference)
             (throw (IllegalArgumentException. "Cannot materialize a cyclic xitdb value.")))
           (binding [*materializing* (conj *materializing* reference)]
