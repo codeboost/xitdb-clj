@@ -5,6 +5,7 @@
     [xitdb.db :as xdb]
     [xitdb.sorted :as sorted])
   (:import
+    [java.io File RandomAccessFile]
     [java.nio.file FileAlreadyExistsException Files]
     [java.nio.file.attribute FileAttribute]
     [java.time Instant]
@@ -249,3 +250,40 @@
         (is (= expected (xdb/materialize @compacted)))))
     (with-open [reopened (xdb/xit-db target)]
       (is (= expected (xdb/materialize @reopened))))))
+
+(defn- offsets-temp-files
+  "Names of the offsets files `compact` keeps in the system temp directory
+  while it copies."
+  []
+  (->> (.listFiles (io/file (System/getProperty "java.io.tmpdir")))
+       (map #(.getName ^File %))
+       (filter #(re-find #"^compact_offsets" %))
+       set))
+
+(deftest compact-removes-its-offsets-file-test
+  (testing "after a successful copy"
+    (doseq [[source-kind target-kind] storage-pairs]
+      (let [before (offsets-temp-files)]
+        (with-open [source (xdb/xit-db (location source-kind))]
+          (reset! source {:value (vec (range 100))})
+          (with-open [compacted (xdb/compact source (location target-kind))]
+            (is (= {:value (vec (range 100))} (xdb/materialize @compacted)))))
+        (is (empty? (remove before (offsets-temp-files)))
+            (str source-kind " -> " target-kind)))))
+  (testing "after the copy fails part way through"
+    (let [source-path (new-path)
+          target      (new-path)]
+      (with-open [source (xdb/xit-db source-path)]
+        (reset! source {:filler (apply str (repeat 20000 "x")) :value [1 2 3]}))
+      ;; Overwrite the index blocks written after the filler string. The header
+      ;; still opens, so the offsets file is created before the copy walks into
+      ;; an invalid tag.
+      (with-open [raf (RandomAccessFile. source-path "rw")]
+        (.seek raf (- (.length raf) 256))
+        (.write raf (byte-array 192 (byte -1))))
+      (let [before (offsets-temp-files)]
+        (with-open [source (xdb/xit-db source-path)]
+          (is (map? @source) "the corrupted source still opens; only the copy fails")
+          (is (thrown? Exception (xdb/compact source target))))
+        (is (empty? (remove before (offsets-temp-files))))
+        (is (not (.exists (io/file target))))))))
