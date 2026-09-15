@@ -68,8 +68,9 @@
     (with-open [d (xdb/xit-db :memory)]
       (reset! d native)
       (swap! d (fn [^java.util.List view]
-                 (let [iterators [(.iterator view)
-                                  (.listIterator view)
+                 ;; `.iterator` streams the seq without touching write cursors, so
+                 ;; it is intentionally not live. The index-based iterators are.
+                 (let [iterators [(.listIterator view)
                                   (.iterator (.subList view 0 3))]]
                    (doseq [[i value] [[0 10] [1 nil] [2 30]]]
                      (doseq [^java.util.Iterator it iterators]

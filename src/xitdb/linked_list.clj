@@ -216,8 +216,7 @@
     (.containsAll (collection/list-view this) values))
 
   (iterator [this]
-    ;; Read each value when consumed so later assocs remain visible.
-    (.listIterator ^java.util.List this))
+    (clojure.lang.SeqIterator. (seq this)))
 
   (^objects toArray [this]
     (.toArray (collection/list-view this)))
