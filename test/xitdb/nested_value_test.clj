@@ -41,3 +41,10 @@
                   (first (get-in @db [:copies :in-list]))]]
       (is (sorted? copy))
       (is (= ["b" "c"] (subseq copy >= "b"))))))
+
+(deftest materialize-rejects-cycles
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db {})
+    (swap! db #(assoc % :self %))
+    (is (thrown-with-msg? IllegalArgumentException #"cyclic"
+                          (xdb/materialize @db)))))
