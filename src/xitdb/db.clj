@@ -6,9 +6,9 @@
     [xitdb.xitdb-types :as xtypes])
   (:import
     [io.github.radarroark.xitdb
-     Core CoreBufferedFile CoreMemory CoreReadOnlyFile Database Database$ContextFunction Hasher
+     Core CoreBufferedFile CoreMemory CoreReadOnlyFile Database Database$ContextFunction FileOffsetMap Hasher
      RandomAccessBufferedFile RandomAccessMemory ReadArrayList ReadCursor WriteArrayList WriteCursor]
-    [java.io File]
+    [java.io File RandomAccessFile]
     [java.nio.file Files]
     [java.nio.file.attribute FileAttribute]
     [java.security MessageDigest]
@@ -281,7 +281,12 @@
         (try
           (let [^Database source (.-rwdb xdb)
                 _                (.rootCursor source)
-                compacted        (.compact source target-core)]
+                offsets-file     (File/createTempFile "compact_offsets" ".db")
+                compacted        (try
+                                   (with-open [offset-map (FileOffsetMap. (RandomAccessFile. offsets-file "rw"))]
+                                     (.compact source target-core offset-map))
+                                   (finally
+                                     (Files/deleteIfExists (.toPath offsets-file))))]
             (wrap-db target compacted))
           (catch Throwable t
             ;; Clean up the target without hiding the original error
