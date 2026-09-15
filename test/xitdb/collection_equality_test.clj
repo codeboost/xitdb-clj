@@ -27,8 +27,8 @@
                  (assoc view :b 2)))
       (is (= {:a 1 :b 2} (db/materialize @d))))))
 
-(defn- check-java-list-equality [view]
-  (let [java-list (java.util.ArrayList. [1 2])]
+(defn- check-java-list-equality [view expected]
+  (let [java-list (java.util.ArrayList. expected)]
     (is (.equals view java-list))
     (is (.equals java-list view))
     (is (= (.hashCode view) (.hashCode java-list)))
@@ -39,10 +39,24 @@
   (doseq [native [[1 2] '(1 2)]]
     (with-open [d (db/xit-db :memory)]
       (reset! d native)
-      (check-java-list-equality @d)
+      (check-java-list-equality @d native)
       (swap! d (fn [view]
-                 (check-java-list-equality view)
+                 (check-java-list-equality view native)
                  view)))))
+
+(deftest java-list-equality-and-membership-support-nested-nil-vectors
+  (let [check-view (fn [^java.util.List view]
+                     (check-java-list-equality view [[1 nil]])
+                     (is (.contains view [1 nil]))
+                     (is (.containsAll view [[1 nil]]))
+                     (is (= 0 (.indexOf view [1 nil])))
+                     (is (= 0 (.lastIndexOf view [1 nil])))
+                     view)]
+    (doseq [native [[[1 nil]] '([1 nil])]]
+      (with-open [d (db/xit-db :memory)]
+        (reset! d native)
+        (check-view @d)
+        (swap! d check-view)))))
 
 (deftest stored-sequences-work-as-query-keys
   (doseq [make-value [vector list]]

@@ -127,7 +127,9 @@
     (let [count (.count ral)
           idx   (long i)]
       (if (and (>= idx 0) (< idx count))
-        (common/-read-from-cursor (.getCursor ral idx))
+        ;; A stored nil has no cursor, even though the index is in range.
+        (when-let [cursor (.getCursor ral idx)]
+          (common/-read-from-cursor cursor))
         (throw (IndexOutOfBoundsException. (str "Index: " i ", Size: " count))))))
 
   (nth [_ i not-found]
@@ -243,7 +245,8 @@
     (.containsAll (collection/list-view this) values))
 
   (iterator [this]
-    (clojure.lang.SeqIterator. (seq this)))
+    ;; Read each value when consumed so later assocs remain visible.
+    (.listIterator ^java.util.List this))
 
   (^objects toArray [this]
     (.toArray (collection/list-view this)))
