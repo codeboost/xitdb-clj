@@ -21,7 +21,7 @@
   is never present, so lookups with it return nil instead of throwing."
   [^ReadSortedMap rsm key]
   (when (some? key)
-    (.getCursor rsm (sorted-key/encode-key key))))
+    (some-> (.getKeyValuePair rsm (sorted-key/encode-key key)) .-valueCursor)))
 
 (defn smap-contains-key?
   "Unsupported keys are absent, including when native/Java maps compare
@@ -30,7 +30,7 @@
   (let [encoded (try
                   (when (some? key) (sorted-key/encode-key key))
                   (catch IllegalArgumentException _ nil))]
-    (and (some? encoded) (some? (.getCursor rsm encoded)))))
+    (and (some? encoded) (some? (.getKeyValuePair rsm encoded)))))
 
 (defn smap-write-cursor
   "Write cursor for `key`. Creates the key if it doesn't exist, so callers that

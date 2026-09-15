@@ -3,6 +3,7 @@
     [xitdb.util.conversion :as conversion]
     [xitdb.util.validation :as validation])
   (:import
+    [io.github.radarroark.xitdb Database$HashMapGet Database$HashMapGetKVPair Database$PathPart]
     [io.github.radarroark.xitdb ReadArrayList ReadCountedHashMap ReadCountedHashSet ReadHashMap ReadHashSet ReadLinkedArrayList Tag WriteArrayList WriteCountedHashMap WriteCountedHashSet WriteCursor WriteHashMap WriteHashSet WriteLinkedArrayList]))
 
 ;; ============================================================================
@@ -148,7 +149,7 @@
   (let [key-hash (try
                    (conversion/db-key-hash (-> whm .cursor .db) key)
                    (catch IllegalArgumentException _ nil))]
-    (and (some? key-hash) (some? (.getKeyCursor whm key-hash)))))
+    (and (some? key-hash) (some? (.getKeyValuePair whm key-hash)))))
 
 (defn map-item-count-iterated
   "Returns the number of keys in the map by iterating.
@@ -174,7 +175,7 @@
   Returns the cursor if the key exists, nil otherwise."
   [^ReadHashMap rhm key]
   (let [key-hash (conversion/db-key-hash (-> rhm .cursor .db) key)]
-    (.getCursor rhm key-hash)))
+    (some-> (.getKeyValuePair rhm key-hash) .-valueCursor)))
 
 ;; ============================================================================
 ;; Set Operations  
@@ -204,9 +205,12 @@
 
 (defn set-contains?
   "Returns true if `v` is in the set."
-  [rhs v]
+  [^ReadHashSet rhs v]
   (let [hash-code (conversion/db-key-hash (-> rhs .-cursor .-db) v)
-        cursor    (.getCursor rhs hash-code)]
+        ;; Test the entry: a stored nil member has no non-NONE value cursor.
+        cursor    (.readPath (.cursor rhs)
+                    (into-array Database$PathPart
+                      [(Database$HashMapGet. (Database$HashMapGetKVPair. hash-code))]))]
     (some? cursor)))
 
 (defn ^WriteHashSet set-empty!
