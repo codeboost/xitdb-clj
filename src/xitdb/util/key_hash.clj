@@ -66,11 +66,15 @@
   Scalars use binary fields; collections contribute recursively computed child
   digests. Normalizes equal numeric representations and list/vector shapes;
   positive and negative zero hash alike because Clojure treats them as equal.
-  Rejects lazy sequences, unsupported types, and Date subclasses."
+  Rejects lazy sequences, records, NaN, unsupported types, and Date subclasses."
   [db ^DataOutputStream out v]
   (cond
     (validation/lazy-seq? v)
     (throw (IllegalArgumentException. "Lazy sequences can be infinite and not allowed!"))
+
+    (record? v)
+    (throw (IllegalArgumentException.
+             "Records are not supported as keys or key elements; convert the record to a plain map explicitly."))
 
     (nil? v)
     (.writeByte out tag-nil)
@@ -86,9 +90,11 @@
       (.writeLong out (long v)))
 
     (float? v)
-    (do
+    (let [d (double v)]
+      (when (Double/isNaN d)
+        (throw (IllegalArgumentException. "NaN is not supported as a key or key element.")))
       (.writeByte out tag-float)
-      (.writeDouble out (if (zero? v) 0.0 (double v))))
+      (.writeDouble out (if (zero? d) 0.0 d)))
 
     (char? v)
     (do

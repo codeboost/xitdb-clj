@@ -70,6 +70,11 @@ preserved. Use a serializer that preserves your value types and sorted
 collections; plain EDN does not round-trip every supported type. Opening an
 incompatible file does not modify it, and compaction does not migrate hashes.
 
+Records and `NaN` are rejected as map keys and set members, including anywhere
+inside collection-valued keys or members. Writes throw `IllegalArgumentException`
+instead of silently merging unequal keys. Convert record keys to plain maps
+explicitly if map identity is what you need.
+
 ## Data structures are read lazily from the database
 
 Reading from the database returns wrappers around cursors in the database file:

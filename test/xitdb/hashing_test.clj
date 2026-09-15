@@ -4,6 +4,60 @@
     [xitdb.db :as xdb])
   (:import [java.util Date TimeZone]))
 
+(defrecord RecordKey [id])
+
+(defn- check-rejected-key [k message]
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db {:safe true})
+    (doseq [value [{k :value} #{k}]]
+      (is (thrown-with-msg? IllegalArgumentException message (reset! db value)))
+      (is (= {:safe true} (xdb/materialize @db)))
+      (is (= 1 (count db)) "rejected resets must not append history"))
+    (is (thrown-with-msg? IllegalArgumentException message
+                         (swap! db (fn [m]
+                                     (assoc m :changed true)
+                                     (assoc m k :value)))))
+    (is (= {:safe true} (xdb/materialize @db)))
+    (is (= 1 (count db)) "rejected transactions must roll back earlier writes")
+    (is (false? (contains? @db k)))
+    (is (nil? (.get ^java.util.Map @db k)))
+    (swap! db assoc :after true)
+    (is (= {:safe true :after true} (xdb/materialize @db)))
+    (reset! db #{:safe})
+    (is (thrown-with-msg? IllegalArgumentException message
+                         (swap! db (fn [s]
+                                     (conj s :changed)
+                                     (conj s k)))))
+    (is (= #{:safe} (xdb/materialize @db)))
+    (is (= 3 (count db)))
+    (swap! db conj :after)
+    (is (= #{:safe :after} (xdb/materialize @db)))))
+
+(deftest record-keys-are-rejected-before-key-identity-is-lost
+  (let [record (->RecordKey 1)]
+    (doseq [k [record [record] (list record)
+               {record :nested} {:nested record} #{record}]]
+      (testing (pr-str k)
+        (check-rejected-key k #"Record")))))
+
+(deftest nan-keys-are-rejected-before-key-identity-is-lost
+  (doseq [k [Double/NaN [Double/NaN] (list Double/NaN)
+             {Double/NaN :nested} {:nested Double/NaN} #{Double/NaN}
+             [Float/NaN]]]
+    (testing (pr-str k)
+      (check-rejected-key k #"NaN"))))
+
+(deftest stored-collections-containing-nan-cannot-be-reused-as-keys
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db {:value Double/NaN :nested [Double/NaN]})
+    (is (Double/isNaN (:value @db)) "NaN is still supported as a value")
+    (let [k (:nested @db)]
+      (is (thrown-with-msg? IllegalArgumentException #"NaN"
+                           (swap! db assoc k :value)))
+      (is (= 1 (count db)))
+      (is (= #{:value :nested} (set (keys @db))))
+      (is (Double/isNaN (first (:nested @db)))))))
+
 (deftest millisecond-date-keys-survive-reopen
   (let [file (java.io.File/createTempFile "xitdb-date-keys-" ".db")
         path (.getPath file)
