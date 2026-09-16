@@ -148,10 +148,7 @@
     (.valAt this k not-found))
 
   (applyTo [this args]
-    (case (count args)
-      1 (.invoke this (first args))
-      2 (.invoke this (first args) (second args))
-      (throw (IllegalArgumentException. "Wrong number of args passed to XITDBArrayList"))))
+    (collection/invoke-with-args this args))
 
   clojure.lang.IReduce
   (reduce [this f]
@@ -331,6 +328,16 @@
 
   (valAt [this k not-found]
     (collection/indexed-lookup this k not-found))
+
+  clojure.lang.IFn
+  (invoke [this k]
+    (collection/indexed-invoke this k))
+
+  (invoke [this k not-found]
+    (.valAt this k not-found))
+
+  (applyTo [this args]
+    (collection/invoke-with-args this args))
 
   clojure.lang.Seqable
   (seq [this]

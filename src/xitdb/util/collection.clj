@@ -1,7 +1,7 @@
 (ns xitdb.util.collection
   "Collection equality and hashing shared by database views. Work streams over
   the view; no materialization or mutable-view hash caching is needed."
-  (:import [clojure.lang Associative Indexed Murmur3 SeqIterator Util]
+  (:import [clojure.lang Associative IFn Indexed Murmur3 SeqIterator Util]
            [java.util AbstractCollection AbstractList AbstractSet Collections Map$Entry]))
 
 (defn index-in-bounds?
@@ -43,6 +43,16 @@
   (when-not (integer? k)
     (throw (IllegalArgumentException. "Key must be integer")))
   (indexed-nth coll k))
+
+(defn invoke-with-args
+  "IFn applyTo for sequence views: dispatches to the one- or two-argument
+  invoke and rejects every other arity, as clojure.lang.AFn does."
+  [^IFn coll args]
+  (case (count args)
+    1 (.invoke coll (first args))
+    2 (.invoke coll (first args) (second args))
+    (throw (IllegalArgumentException.
+             (str "Wrong number of args (" (count args) ") passed to " (.getName (class coll)))))))
 
 (defn list-view
   "Live, read-only List adapter for shared Java methods on sequence wrappers.

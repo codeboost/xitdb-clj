@@ -7,7 +7,12 @@
 
 (deftest nested-lazy-sequences-are-rejected-before-realization
   (doseq [wrap [identity vector #(vector [%]) #(hash-map :items [%])
-               #(list [%]) #(java.util.ArrayList. ^java.util.Collection [%])]
+               #(list [%]) #(java.util.ArrayList. ^java.util.Collection [%])
+               ;; Realized cons cells whose tail is the lazy sequence.
+               #(cons 1 %) #(list* 1 2 %) #(vector (cons 1 %))
+               #(hash-map :items (cons 1 %)) #(list (cons 1 %))
+               ;; A chunked cons whose realized chunk hides a lazy rest.
+               #(seq (concat (range 32) %))]
           operation [:reset :swap]]
     (with-open [db (xdb/xit-db :memory)]
       (reset! db {:safe true})
@@ -22,6 +27,30 @@
         (is (false? @realized?))
         (is (= {:safe true} (xdb/materialize @db)))
         (is (= 1 (count db)))))))
+
+(defn- write-outcome
+  "Attempts the write on another thread. An accepted unbounded sequence would
+  append forever, so the attempt is abandoned after a timeout instead of
+  hanging the suite."
+  [db value]
+  (let [attempt (future
+                  (try
+                    (reset! db value)
+                    ::accepted
+                    (catch IllegalArgumentException e
+                      (if (re-find #"Lazy sequences" (.getMessage e)) ::rejected e))))
+        outcome (deref attempt 5000 ::timed-out)]
+    (future-cancel attempt)
+    outcome))
+
+(deftest unbounded-sequence-types-are-rejected
+  (doseq [value [(repeat 3 :a) (repeat :a) (cycle [1 2]) (iterate inc 0) (range)]]
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db {:safe true})
+      (is (= ::rejected (write-outcome db value)) (pr-str (type value)))
+      (is (= ::rejected (write-outcome db [value])) (pr-str (type value)))
+      (is (= {:safe true} (xdb/materialize @db)))
+      (is (= 1 (count db))))))
 
 (deftest sorted-map-nested-in-plain-map-stays-sorted
   (with-open [db (xdb/xit-db :memory)]

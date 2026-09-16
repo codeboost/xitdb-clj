@@ -14,8 +14,8 @@
     [java.security MessageDigest]
     [java.util.concurrent.locks ReentrantLock]))
 
-;; When set to true,
-;; swap! will return [current-history-index old-dbval new-dbval]
+;; When set to true, swap! returns [history-index value-before value-after]
+;; instead of the new value. On a cursor the values are scoped to its keypath.
 (defonce ^:dynamic *return-history?* false)
 
 ;; Avoid extra require in your ns
@@ -161,7 +161,12 @@
   [^Database db]
   (ReadArrayList. (-> db .rootCursor)))
 
-(def ^:deprecated history-index count)
+(defn ^:deprecated history-index
+  "Returns the zero-based index of the latest history entry: the index `swap!`
+  returns under `*return-history?*` and `deref-at` accepts.
+  Deprecated: use `(dec (count db))`."
+  [db]
+  (dec (count db)))
 
 (defn deref-at
   "Returns the version of the data at the specified index."
