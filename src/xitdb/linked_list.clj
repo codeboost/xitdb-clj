@@ -56,7 +56,7 @@
     (.toArray (collection/list-view this) array))
 
   (get [this i]
-    (collection/list-get this i))
+    (collection/indexed-nth this i))
 
   (indexOf [this v]
     (.indexOf (collection/list-view this) v))
@@ -225,7 +225,7 @@
     (.toArray (collection/list-view this) array))
 
   (get [this i]
-    (collection/list-get this i))
+    (collection/indexed-nth this i))
 
   (indexOf [this v]
     (.indexOf (collection/list-view this) v))

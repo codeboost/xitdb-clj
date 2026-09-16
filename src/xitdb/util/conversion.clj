@@ -192,11 +192,8 @@
   come back as a hash one). Likewise a sorted map/set is checked before the
   generic hash-map/hash-set branch that would otherwise shadow it."
   [^WriteCursor cursor v]
+  (validation/validate-not-lazy-seq v)
   (cond
-
-    (validation/lazy-seq? v)
-    (throw (IllegalArgumentException. "Lazy sequences can be infinite and not allowed!"))
-
     (common/wrapper? v)
     (v->slot! cursor (common/-unwrap v))
 
@@ -305,6 +302,7 @@
   (let [write-list (WriteLinkedArrayList. cursor)]
     (doseq [v coll]
       (when *debug?* (println "v=" v))
+      (validation/validate-not-lazy-seq v)
       (cond
         (or (common/wrapper? v)
             (instance? Slotted v)
@@ -316,9 +314,6 @@
         (map? v)
         (let [v-cursor (.appendCursor write-list)]
           (map->WriteHashMapCursor! v-cursor v))
-
-        (validation/lazy-seq? v)
-        (throw (IllegalArgumentException. "Lazy sequences can be infinite and not allowed !"))
 
         (validation/list-or-cons? v)
         (let [v-cursor (.appendCursor write-list)]
