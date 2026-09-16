@@ -53,7 +53,7 @@
 
 (defn append-context!
   "Appends a new history context and calls `fn` with a write cursor.
-  Returns the new history index."
+  Returns the zero-based index of the new history entry."
   [^WriteArrayList history slot fn]
   (.appendContext
     history
@@ -62,7 +62,7 @@
       (^void run [_ ^WriteCursor cursor]
         (fn cursor)
         nil)))
-  (.count history))
+  (dec (.count history)))
 
 (defn xitdb-reset!
   "Sets the value of the database to `new-value`.
@@ -124,9 +124,9 @@
       (.lock lock)
       (with-file-lock (.-rwdb xitdb)
         (fn []
-          (let [old-value (when *return-history?* (deref xitdb))
+          (let [old-value (when *return-history?* (get-in (deref xitdb) base-keypath))
                 index     (apply xitdb-swap! (into [(-> xitdb .rwdb) base-keypath f] args))
-                new-value (deref xitdb)]
+                new-value (get-in (deref xitdb) base-keypath)]
             (if *return-history?*
               [index old-value new-value]
               new-value))))

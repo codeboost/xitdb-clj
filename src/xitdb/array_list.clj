@@ -127,31 +127,32 @@
     (let [count (.count ral)
           idx   (long i)]
       (if (and (>= idx 0) (< idx count))
-        ;; A stored nil has no cursor, even though the index is in range.
         (when-let [cursor (.getCursor ral idx)]
           (common/-read-from-cursor cursor))
         (throw (IndexOutOfBoundsException. (str "Index: " i ", Size: " count))))))
 
   (nth [_ i not-found]
-    (let [cursor (.getCursor ral (long i))]
-      (if cursor
-        (common/-read-from-cursor cursor)
-        not-found)))
+    (if (and (>= i 0) (< i (.count ral)))
+      (when-let [cursor (.getCursor ral (long i))]
+        (common/-read-from-cursor cursor))
+      not-found))
 
   clojure.lang.ILookup
   (valAt [this k]
-    (if (number? k)
-      (.nth this (long k))
-      (throw (IllegalArgumentException. "Key must be a number"))))
+    (.valAt this k nil))
 
   (valAt [this k not-found]
-    (if (number? k)
-      (.nth this (long k) not-found)
+    (if (.containsKey this k)
+      (.nth this (int k) not-found)
       not-found))
 
   clojure.lang.IFn
   (invoke [this k]
-    (.valAt this k))
+    (when-not (integer? k)
+      (throw (IllegalArgumentException. "Key must be integer")))
+    (if (.containsKey this k)
+      (.nth this (int k))
+      (throw (IndexOutOfBoundsException. (str "Index: " k ", Size: " (.count ral))))))
 
   (invoke [this k not-found]
     (.valAt this k not-found))
@@ -303,7 +304,9 @@
 
   clojure.lang.Indexed
   (nth [this i]
-    (.nth this i nil))
+    (if (and (>= i 0) (< i (.count wal)))
+      (.nth this i nil)
+      (throw (IndexOutOfBoundsException. (str "Index: " i ", Size: " (.count wal))))))
 
   (nth [this i not-found]
     (if (and (>= i 0) (< i (.count wal)))
@@ -339,7 +342,9 @@
     (.valAt this k nil))
 
   (valAt [this k not-found]
-    (.nth this k not-found))
+    (if (.containsKey this k)
+      (.nth this (int k) not-found)
+      not-found))
 
   clojure.lang.Seqable
   (seq [this]

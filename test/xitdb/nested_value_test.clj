@@ -5,6 +5,24 @@
     [clojure.test :refer :all]
     [xitdb.db :as xdb]))
 
+(deftest nested-lazy-sequences-are-rejected-before-realization
+  (doseq [wrap [identity vector #(vector [%]) #(hash-map :items [%])
+               #(list [%]) #(java.util.ArrayList. ^java.util.Collection [%])]
+          operation [:reset :swap]]
+    (with-open [db (xdb/xit-db :memory)]
+      (reset! db {:safe true})
+      (let [realized? (atom false)
+            value (wrap (lazy-seq
+                          (reset! realized? true)
+                          (throw (ex-info "The sequence must not be realized" {}))))]
+        (is (thrown-with-msg? IllegalArgumentException #"Lazy sequences"
+                             (case operation
+                               :reset (reset! db value)
+                               :swap (swap! db assoc :bad value))))
+        (is (false? @realized?))
+        (is (= {:safe true} (xdb/materialize @db)))
+        (is (= 1 (count db)))))))
+
 (deftest sorted-map-nested-in-plain-map-stays-sorted
   (with-open [db (xdb/xit-db :memory)]
     (reset! db {:idx (sorted-map 3 :c 1 :a 2 :b)})

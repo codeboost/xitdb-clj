@@ -16,7 +16,7 @@
     (testing "should return history when binding is set"
       (binding [xdb/*return-history?* true]
         (let [retval (swap! db assoc-in [:foo :bar] 42)]
-          (is (= [3 {:foo {:bar {:baz {:vroo 5}}}} {:foo {:bar 42}}]
+          (is (= [2 {:foo {:bar {:baz {:vroo 5}}}} {:foo {:bar 42}}]
                  (common/materialize retval))))))))
 
 (defn temp-db-file []
