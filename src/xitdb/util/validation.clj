@@ -1,7 +1,20 @@
 (ns xitdb.util.validation)
 
-(defn lazy-seq? [v]
-  (instance? clojure.lang.LazySeq v))
+(defn lazy-seq?
+  "True when `v` is a lazy sequence: a LazySeq, a `repeat`/`cycle`/`iterate`
+  seq (rejected even when bounded, since the type cannot say), or a chain of
+  already-realized cons cells (`cons`, `list*`, a chunked seq) whose tail is
+  one of those. Only walks cells that exist, so it never realizes anything."
+  [v]
+  (loop [v v]
+    (cond
+      (or (instance? clojure.lang.LazySeq v)
+          (instance? clojure.lang.Repeat v)
+          (instance? clojure.lang.Cycle v)
+          (instance? clojure.lang.Iterate v)) true
+      (instance? clojure.lang.Cons v) (recur (.more ^clojure.lang.Cons v))
+      (instance? clojure.lang.ChunkedCons v) (recur (.more ^clojure.lang.ChunkedCons v))
+      :else false)))
 
 (defn vector-or-chunked? [v]
   (or (vector? v) (chunked-seq? v)))

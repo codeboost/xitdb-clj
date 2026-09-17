@@ -14,8 +14,8 @@
     [java.security MessageDigest]
     [java.util.concurrent.locks ReentrantLock]))
 
-;; When set to true,
-;; swap! will return [current-history-index old-dbval new-dbval]
+;; When set to true, swap! returns [history-index value-before value-after]
+;; instead of the new value. On a cursor the values are scoped to its keypath.
 (defonce ^:dynamic *return-history?* false)
 
 ;; Avoid extra require in your ns
@@ -53,7 +53,7 @@
 
 (defn append-context!
   "Appends a new history context and calls `fn` with a write cursor.
-  Returns the new history index."
+  Returns the zero-based index of the new history entry."
   [^WriteArrayList history slot fn]
   (.appendContext
     history
@@ -62,7 +62,7 @@
       (^void run [_ ^WriteCursor cursor]
         (fn cursor)
         nil)))
-  (.count history))
+  (dec (.count history)))
 
 (defn xitdb-reset!
   "Sets the value of the database to `new-value`.
@@ -124,9 +124,9 @@
       (.lock lock)
       (with-file-lock (.-rwdb xitdb)
         (fn []
-          (let [old-value (when *return-history?* (deref xitdb))
+          (let [old-value (when *return-history?* (get-in (deref xitdb) base-keypath))
                 index     (apply xitdb-swap! (into [(-> xitdb .rwdb) base-keypath f] args))
-                new-value (deref xitdb)]
+                new-value (get-in (deref xitdb) base-keypath)]
             (if *return-history?*
               [index old-value new-value]
               new-value))))
@@ -161,7 +161,12 @@
   [^Database db]
   (ReadArrayList. (-> db .rootCursor)))
 
-(def ^:deprecated history-index count)
+(defn ^:deprecated history-index
+  "Returns the zero-based index of the latest history entry: the index `swap!`
+  returns under `*return-history?*` and `deref-at` accepts.
+  Deprecated: use `(dec (count db))`."
+  [db]
+  (dec (count db)))
 
 (defn deref-at
   "Returns the version of the data at the specified index."

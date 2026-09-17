@@ -7,6 +7,30 @@
     [xitdb.db :as xdb]
     [xitdb.test-utils :as tu]))
 
+(deftest returned-history-index-identifies-the-committed-version
+  (with-open [db (xdb/xit-db :memory)]
+    (is (= [0 nil {:version 1}]
+           (mapv xdb/materialize
+                 (binding [xdb/*return-history?* true]
+                   (swap! db (constantly {:version 1}))))))
+    (let [[index before after] (binding [xdb/*return-history?* true]
+                                 (swap! db assoc :version 2))]
+      (is (= (dec (count db)) index))
+      (is (= {:version 1} (xdb/materialize before)))
+      (is (= {:version 2} (xdb/materialize after)))
+      (is (= after (xdb/deref-at db index)))
+      (swap! db assoc :version 3)
+      (is (= {:version 2} (xdb/materialize (xdb/deref-at db index))))
+      (is (= {:version 1} (xdb/materialize before)))
+      (is (= {:version 2} (xdb/materialize after))))))
+
+(deftest deprecated-history-index-is-the-latest-committed-index
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db {:version 1})
+    (reset! db {:version 2})
+    (is (= (dec (count db)) (xdb/history-index db)))
+    (is (= {:version 2} (xdb/materialize (xdb/deref-at db (xdb/history-index db)))))))
+
 (deftest deref-at-basic-test
   (testing "deref-at returns the version of data at a specific index"
     (with-open [db (xdb/xit-db :memory)]

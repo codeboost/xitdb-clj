@@ -427,7 +427,9 @@
       (is (thrown? IllegalArgumentException (swap! db concat [1 2])))
       (swap! db (comp vec concat) [1 2])
       (is (= [44 1 2 3 1 2] @db))
-      (swap! db (comp seq concat) [99])
+      (testing "seq only realizes the first cell, so the tail is still lazy"
+        (is (thrown? IllegalArgumentException (swap! db (comp seq concat) [99]))))
+      (swap! db (comp #(apply list %) concat) [99])
       (is (= '(44 1 2 3 1 2 99) @db)))
 
     (testing "Throws on take or drop"

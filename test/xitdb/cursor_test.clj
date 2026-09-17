@@ -3,6 +3,38 @@
     [clojure.test :refer :all]
     [xitdb.db :as xdb]))
 
+(deftest cursor-updates-return-the-value-at-their-path
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db {:outer {:counter 10} :untouched 99})
+    (let [cursor (xdb/xdb-cursor (xdb/xdb-cursor db [:outer]) [:counter])]
+      (is (= 11 (swap! cursor inc)))
+      (is (= 21 (swap! cursor + 10)))
+      (is (= 24 (swap! cursor + 1 2)))
+      (is (= 34 (swap! cursor + 1 2 3 4)))
+      (is (= 25 (reset! cursor 25)))
+      (is (= 25 @cursor))
+      (is (nil? (reset! cursor nil)))
+      (is (= {:outer {:counter nil} :untouched 99} (xdb/materialize @db))))
+    (let [cursor (xdb/xdb-cursor db [:outer])
+          result (reset! cursor {:counter 42})]
+      (is (= {:counter 42} (xdb/materialize result))))
+    (is (= {:outer {:counter 42} :untouched 99}
+           (xdb/materialize (swap! (xdb/xdb-cursor db []) identity))))))
+
+(deftest cursor-history-returns-scoped-snapshots-and-a-root-history-index
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db {:nested {:v 1} :untouched 99})
+    (let [cursor (xdb/xdb-cursor db [:nested])
+          [index before after] (binding [xdb/*return-history?* true]
+                                 (swap! cursor assoc :v 2))]
+      (is (= [1 {:v 1} {:v 2}] (mapv xdb/materialize [index before after])))
+      (is (= after (:nested (xdb/deref-at db index))))
+      (is (= [2 {:v 2} nil]
+             (mapv xdb/materialize
+                   (binding [xdb/*return-history?* true] (reset! cursor nil)))))
+      (is (= {:v 1} (xdb/materialize before)))
+      (is (= {:v 2} (xdb/materialize after))))))
+
 (deftest CursorTest
   (with-open [db (xdb/xit-db :memory)]
     (reset! db {:foo {:bar [1 2 3 {:hidden true} 5]}})
@@ -27,7 +59,7 @@
         (is (= 3 @cursor2)))
 
       (testing "Correctly handles invalid cursor path"
-        (is (thrown? IndexOutOfBoundsException @(xdb/xdb-cursor db [:foo :bar 999])))))))
+        (is (nil? @(xdb/xdb-cursor db [:foo :bar 999])))))))
 
 (deftest cursor-into-sorted-map
   (with-open [db (xdb/xit-db :memory)]

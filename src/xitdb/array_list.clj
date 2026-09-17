@@ -55,7 +55,7 @@
     (.toArray (collection/list-view this) array))
 
   (get [this i]
-    (collection/list-get this i))
+    (collection/indexed-nth this i))
 
   (indexOf [this v]
     (.indexOf (collection/list-view this) v))
@@ -109,7 +109,7 @@
     (assoc (common/-materialize-shallow this) k v))
 
   (containsKey [this k]
-    (and (integer? k) (>= k 0) (< k (.count ral))))
+    (collection/index-in-bounds? k (.count ral)))
 
   (entryAt [this k]
     (when (.containsKey this k)
@@ -123,44 +123,32 @@
     (.count ral))
 
   clojure.lang.Indexed
-  (nth [_ i]
-    (let [count (.count ral)
-          idx   (long i)]
-      (if (and (>= idx 0) (< idx count))
-        ;; A stored nil has no cursor, even though the index is in range.
-        (when-let [cursor (.getCursor ral idx)]
-          (common/-read-from-cursor cursor))
-        (throw (IndexOutOfBoundsException. (str "Index: " i ", Size: " count))))))
+  (nth [this i]
+    (collection/indexed-nth this i))
 
   (nth [_ i not-found]
-    (let [cursor (.getCursor ral (long i))]
-      (if cursor
-        (common/-read-from-cursor cursor)
-        not-found)))
+    (if (collection/index-in-bounds? i (.count ral))
+      ;; A stored nil has no cursor, even though the index is in range.
+      (when-let [cursor (.getCursor ral (long i))]
+        (common/-read-from-cursor cursor))
+      not-found))
 
   clojure.lang.ILookup
   (valAt [this k]
-    (if (number? k)
-      (.nth this (long k))
-      (throw (IllegalArgumentException. "Key must be a number"))))
+    (.valAt this k nil))
 
   (valAt [this k not-found]
-    (if (number? k)
-      (.nth this (long k) not-found)
-      not-found))
+    (collection/indexed-lookup this k not-found))
 
   clojure.lang.IFn
   (invoke [this k]
-    (.valAt this k))
+    (collection/indexed-invoke this k))
 
   (invoke [this k not-found]
     (.valAt this k not-found))
 
   (applyTo [this args]
-    (case (count args)
-      1 (.invoke this (first args))
-      2 (.invoke this (first args) (second args))
-      (throw (IllegalArgumentException. "Wrong number of args passed to XITDBArrayList"))))
+    (collection/invoke-with-args this args))
 
   clojure.lang.IReduce
   (reduce [this f]
@@ -254,7 +242,7 @@
     (.toArray (collection/list-view this) array))
 
   (get [this i]
-    (collection/list-get this i))
+    (collection/indexed-nth this i))
 
   (indexOf [this v]
     (.indexOf (collection/list-view this) v))
@@ -303,10 +291,10 @@
 
   clojure.lang.Indexed
   (nth [this i]
-    (.nth this i nil))
+    (collection/indexed-nth this i))
 
   (nth [this i not-found]
-    (if (and (>= i 0) (< i (.count wal)))
+    (if (collection/index-in-bounds? i (.count wal))
       (common/-read-from-cursor (.putCursor wal i))
       not-found))
 
@@ -328,7 +316,7 @@
     this)
 
   (containsKey [this k]
-    (and (integer? k) (>= k 0) (< k (.count wal))))
+    (collection/index-in-bounds? k (.count wal)))
 
   (entryAt [this k]
     (when (.containsKey this k)
@@ -339,7 +327,17 @@
     (.valAt this k nil))
 
   (valAt [this k not-found]
-    (.nth this k not-found))
+    (collection/indexed-lookup this k not-found))
+
+  clojure.lang.IFn
+  (invoke [this k]
+    (collection/indexed-invoke this k))
+
+  (invoke [this k not-found]
+    (.valAt this k not-found))
+
+  (applyTo [this args]
+    (collection/invoke-with-args this args))
 
   clojure.lang.Seqable
   (seq [this]
