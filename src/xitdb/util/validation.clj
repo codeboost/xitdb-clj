@@ -1,7 +1,13 @@
 (ns xitdb.util.validation)
 
-(defn lazy-seq? [v]
-  (instance? clojure.lang.LazySeq v))
+(defn lazy-seq?
+  "True when `v` is a seq that produces its elements on demand: a LazySeq (from
+  `map`, `concat`, `take`...) or an `iterate`/`cycle` seq, which covers `(range)`.
+  Such a seq may be infinite, so writing it could never finish. Seqs whose
+  first cells already exist (`cons`, `(seq (concat ...))`) and `repeat` are not
+  pending and are written like lists."
+  [v]
+  (and (seq? v) (instance? clojure.lang.IPending v)))
 
 (defn vector-or-chunked? [v]
   (or (vector? v) (chunked-seq? v)))
