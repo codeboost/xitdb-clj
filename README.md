@@ -220,16 +220,22 @@ After making further transactions, you can revert back to it simply like this:
 (reset! db (xdb/deref-at db history-index))
 ```
 
-It is also possible to create a transaction which returns the previous and current 
-values of the database, by setting the `*return-history?*` binding to `true`.
+It is also possible to create a transaction which returns the history count and the
+previous and current values of the database, by setting the `*return-history?*` binding to `true`.
+The history count is the `count` of the database after the transaction, so the version
+it wrote is at `(dec history-count)`.
 
 ```clojure
 ;; Work with history tracking
 (binding [xdb/*return-history?* true]
-  (let [[history-index old-value new-value] (swap! db assoc :new-key "value")]
+  (let [[history-count old-value new-value] (swap! db assoc :new-key "value")]
     (println "old value:" old-value)
-    (println "new value:" new-value)))
+    (println "new value:" new-value)
+    (println "same as new value:" (xdb/deref-at db (dec history-count)))))
 ```
+
+On a cursor, `swap!` and `reset!` return the value at the cursor's keypath, and the
+previous and current values above are also the values at that keypath.
 
 ## Compaction
 

@@ -16,12 +16,12 @@
   (with-open [db (xdb/xit-db :memory)]
     (reset! db {:nested {:v 1} :untouched 99})
     (let [cursor (xdb/xdb-cursor db [:nested])
-          [index before after] (binding [xdb/*return-history?* true]
-                                 (swap! cursor assoc :v 2))]
-      (is (= 1 index))
+          [history-count before after] (binding [xdb/*return-history?* true]
+                                         (swap! cursor assoc :v 2))]
+      (is (= 2 history-count))
       (is (= {:v 1} (xdb/materialize before)))
       (is (= {:v 2} (xdb/materialize after)))
-      (is (= {:nested {:v 2} :untouched 99} (xdb/materialize (xdb/deref-at db index)))))))
+      (is (= {:nested {:v 2} :untouched 99} (xdb/materialize (xdb/deref-at db (dec history-count))))))))
 
 (deftest CursorTest
   (with-open [db (xdb/xit-db :memory)]
