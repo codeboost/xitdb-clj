@@ -262,6 +262,8 @@
   (when *debug?* (println "Write array" (type coll)))
   (let [write-array (WriteArrayList. cursor)]
     (doseq [v coll]
+      ;; A lazy seq is also a java.util.List, so reject it before that branch.
+      (validation/validate-not-lazy-seq v)
       (cond
         (or (common/wrapper? v)
             (instance? Slotted v)
