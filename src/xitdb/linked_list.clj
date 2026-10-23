@@ -56,7 +56,7 @@
     (.toArray (collection/list-view this) array))
 
   (get [this i]
-    (collection/list-get this i))
+    (collection/indexed-nth this i))
 
   (indexOf [this v]
     (.indexOf (collection/list-view this) v))
@@ -106,30 +106,26 @@
   clojure.lang.Sequential
 
   clojure.lang.Indexed
-  (nth [_ i]
-    (let [cursor (.getCursor rlal (long i))]
-      (common/-read-from-cursor cursor)))
+  (nth [this i]
+    (collection/indexed-nth this i))
 
   (nth [_ i not-found]
-    (let [cursor (.getCursor rlal (long i))]
-      (if cursor
-        (common/-read-from-cursor cursor)
-        not-found)))
+    (if (collection/index-in-bounds? i (.count rlal))
+      ;; A stored nil has no cursor, even though the index is in range.
+      (when-let [cursor (.getCursor rlal (long i))]
+        (common/-read-from-cursor cursor))
+      not-found))
 
   clojure.lang.ILookup
   (valAt [this k]
-    (if (number? k)
-      (.nth this (long k))
-      (throw (IllegalArgumentException. "Key must be a number"))))
+    (.valAt this k nil))
 
   (valAt [this k not-found]
-    (if (number? k)
-      (.nth this (long k) not-found)
-      not-found))
+    (collection/indexed-lookup this k not-found))
 
   clojure.lang.IFn
   (invoke [this k]
-    (.valAt this k))
+    (collection/indexed-invoke this k))
 
   (invoke [this k not-found]
     (.valAt this k not-found))
@@ -225,7 +221,7 @@
     (.toArray (collection/list-view this) array))
 
   (get [this i]
-    (collection/list-get this i))
+    (collection/indexed-nth this i))
 
   (indexOf [this v]
     (.indexOf (collection/list-view this) v))
@@ -282,10 +278,10 @@
 
   clojure.lang.Indexed
   (nth [this i]
-    (.nth this i nil))
+    (collection/indexed-nth this i))
 
   (nth [this i not-found]
-    (if (and (>= i 0) (< i (.count wlal)))
+    (if (collection/index-in-bounds? i (.count wlal))
       (common/-read-from-cursor (.putCursor wlal i))
       not-found))
 
@@ -315,7 +311,7 @@
     (.valAt this k nil))
 
   (valAt [this k not-found]
-    (.nth this k not-found))
+    (collection/indexed-lookup this k not-found))
 
   clojure.lang.Seqable
   (seq [this]

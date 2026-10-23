@@ -1,17 +1,42 @@
 (ns xitdb.util.collection
-  "Collection equality and hashing shared by database views. Work streams over
+  "Collection lookups, equality and hashing shared by database views. Work streams over
   the view; no materialization or mutable-view hash caching is needed."
-  (:import [clojure.lang Associative Murmur3 SeqIterator Util]
+  (:import [clojure.lang Associative Indexed Murmur3 SeqIterator Util]
            [java.util AbstractCollection AbstractList AbstractSet Collections Map$Entry]))
 
-(defn list-get
-  "Java List.get requires an exception for every out-of-range index, including
-  negative indices; the database's Clojure nth methods have varying defaults."
-  [coll i]
-  (when (or (neg? i) (>= i (count coll)))
-    (throw (IndexOutOfBoundsException. (str "Index: " i ", Size: " (count coll)))))
-  ;; An in-range NONE slot represents nil and may have no read cursor.
-  (nth coll i nil))
+(defn index-in-bounds?
+  "True when `i` is an integer index inside a sequence of `size` elements.
+  Floats, nil and keywords are never in bounds. The engine counts negative
+  indices from the end, so every lookup checks this before coercing `i` and
+  reading."
+  [i size]
+  (and (integer? i) (<= 0 i) (< i size)))
+
+(defn indexed-nth
+  "nth without a default for sequence views: the element at an in-bounds index,
+  otherwise IndexOutOfBoundsException, as Clojure vectors and Java List.get do.
+  Reads with a nil default because an in-range NONE slot represents a stored
+  nil and may have no read cursor."
+  [^Indexed coll i]
+  (if (index-in-bounds? i (count coll))
+    (.nth coll (int i) nil)
+    (throw (IndexOutOfBoundsException. (str "Index: " i ", Size: " (count coll))))))
+
+(defn indexed-lookup
+  "ILookup valAt for sequence views: the element at an in-bounds index, which
+  may be a stored nil, and `not-found` for every other key."
+  [^Indexed coll k not-found]
+  (if (index-in-bounds? k (count coll))
+    (.nth coll (int k) not-found)
+    not-found))
+
+(defn indexed-invoke
+  "Single-argument invocation of a sequence view. Unlike `get`, it throws for
+  keys that are not indices, as Clojure vectors do."
+  [coll k]
+  (when-not (integer? k)
+    (throw (IllegalArgumentException. "Key must be integer")))
+  (indexed-nth coll k))
 
 (defn list-view
   "Live, read-only List adapter for shared Java methods on sequence wrappers.
@@ -21,7 +46,7 @@
   (Collections/unmodifiableList
     (proxy [AbstractList] []
       (size [] (count coll))
-      (get [i] (list-get coll i))
+      (get [i] (indexed-nth coll i))
       (iterator [] (SeqIterator. (seq coll))))))
 
 (defn sequence-equal?

@@ -26,8 +26,8 @@
         (is (= :changed-by-swap! @cursor3))
         (is (= 3 @cursor2)))
 
-      (testing "Correctly handles invalid cursor path"
-        (is (thrown? IndexOutOfBoundsException @(xdb/xdb-cursor db [:foo :bar 999])))))))
+      (testing "A cursor past the end of a vector derefs to nil, like get-in"
+        (is (nil? @(xdb/xdb-cursor db [:foo :bar 999])))))))
 
 (deftest cursor-into-sorted-map
   (with-open [db (xdb/xit-db :memory)]
