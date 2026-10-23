@@ -14,8 +14,10 @@
     [java.security MessageDigest]
     [java.util.concurrent.locks ReentrantLock]))
 
-;; When set to true, swap! returns [history-index value-before value-after]
-;; instead of the new value. On a cursor the values are those at its keypath.
+;; When set to true, swap! returns [history-count value-before value-after]
+;; instead of the new value. history-count is the number of history entries
+;; after the write, so the written version is (deref-at db (dec history-count)).
+;; On a cursor the values are those at its keypath.
 (defonce ^:dynamic *return-history?* false)
 
 ;; Avoid extra require in your ns
@@ -53,7 +55,7 @@
 
 (defn append-context!
   "Appends a new history context and calls `fn` with a write cursor.
-  Returns the zero-based index of the new history entry, which `deref-at` accepts."
+  Returns the history count after the append; the new entry is at `(dec count)`."
   [^WriteArrayList history slot fn]
   (.appendContext
     history
@@ -62,11 +64,11 @@
       (^void run [_ ^WriteCursor cursor]
         (fn cursor)
         nil)))
-  (dec (.count history)))
+  (.count history))
 
 (defn xitdb-reset!
   "Sets the value of the database to `new-value`.
-  Returns new history index."
+  Returns the new history count."
   [^WriteArrayList history new-value]
   (append-context! history nil (fn [^WriteCursor cursor]
                                  (.write cursor (conversion/v->slot! cursor new-value)))))
@@ -85,7 +87,7 @@
   `f` will receive a XITDBWrite* type with the value at `base-keypath` and `args`.
   Actions on the XITDBWrite* type (like `assoc`) will mutate it.
   Return value of `f` is written at `base-keypath` (or root) cursor.
-  Returns the transaction history index."
+  Returns the new history count."
   [db base-keypath f & args]
   (let [history (db-history db)
         slot    (.getSlot history -1)]
@@ -112,7 +114,8 @@
   "Performs the 'swap!' operation while locking `db.lock`.
   Returns the new value of the database.
   If the binding `*return-history?*` is true, returns
-  `[current-history-index db-before db-after]`.
+  `[history-count value-before value-after]`, where the written version is
+  `(deref-at xitdb (dec history-count))`.
   If `keypath` is not empty, the result of `f` will be written to the db at `keypath` rather
   than db root.
   Similarly, if `keypath` is not empty, the returned value will be the value at `keypath`."
@@ -125,10 +128,10 @@
       (with-file-lock (.-rwdb xitdb)
         (fn []
           (let [old-value (when *return-history?* (get-in (deref xitdb) base-keypath))
-                index     (apply xitdb-swap! (into [(-> xitdb .rwdb) base-keypath f] args))
+                n         (apply xitdb-swap! (into [(-> xitdb .rwdb) base-keypath f] args))
                 new-value (get-in (deref xitdb) base-keypath)]
             (if *return-history?*
-              [index old-value new-value]
+              [n old-value new-value]
               new-value))))
       (finally
         (.unlock lock)))))
@@ -161,11 +164,7 @@
   [^Database db]
   (ReadArrayList. (-> db .rootCursor)))
 
-(defn ^:deprecated history-index
-  "Returns the zero-based index of the latest history entry, which `deref-at`
-  accepts. Deprecated: use `(dec (count db))`."
-  [db]
-  (dec (count db)))
+(def ^:deprecated history-index count)
 
 (defn deref-at
   "Returns the version of the data at the specified index."
