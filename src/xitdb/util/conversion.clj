@@ -7,6 +7,7 @@
     [xitdb.util.validation :as validation])
   (:import
     [clojure.lang PersistentTreeMap PersistentTreeSet]
+    [java.nio.charset StandardCharsets]
     [io.github.radarroark.xitdb
      Database Database$Bytes Database$Float Database$Int Database$HashFunction
      ReadArrayList ReadCursor ReadHashMap ReadHashSet ReadLinkedArrayList ReadSortedMap ReadSortedSet
@@ -387,11 +388,13 @@
   Checks the `formatTag` at cursor to determine the type encoded in the bytes object and
   converts the value to the respective Clojure type (eg. keyword, boolean, instant, date).
   Supported types are in the global constant `fmt-tag-value`.
-  If there is no format tag (or it is unknown), returns the value as a string."
+  If there is no format tag (or it is unknown), returns the value as a string.
+  The value and the format tag are decoded as UTF-8, the encoding they are
+  written in, never with the JVM default charset."
   [^ReadCursor cursor]
   (let [bytes-obj (.readBytesObject cursor nil)
-        str       (String. (.value bytes-obj))
-        fmt-tag   (some-> bytes-obj .formatTag String.)]
+        str       (String. ^bytes (.value bytes-obj) StandardCharsets/UTF_8)
+        fmt-tag   (some-> ^bytes (.formatTag bytes-obj) (String. StandardCharsets/UTF_8))]
     (cond
 
       (= fmt-tag (fmt-tag-value :keyword))
