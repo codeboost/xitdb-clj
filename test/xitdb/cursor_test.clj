@@ -3,6 +3,26 @@
     [clojure.test :refer :all]
     [xitdb.db :as xdb]))
 
+(deftest cursor-swap-and-reset-return-the-value-at-the-cursor
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db {:outer {:counter 10} :untouched 99})
+    (let [cursor (xdb/xdb-cursor db [:outer :counter])]
+      (is (= 11 (swap! cursor inc)))
+      (is (= 14 (swap! cursor + 1 2)))
+      (is (= 25 (reset! cursor 25))))
+    (is (= {:counter 25} (xdb/materialize (swap! (xdb/xdb-cursor db [:outer]) identity))))))
+
+(deftest cursor-history-returns-values-at-the-cursor
+  (with-open [db (xdb/xit-db :memory)]
+    (reset! db {:nested {:v 1} :untouched 99})
+    (let [cursor (xdb/xdb-cursor db [:nested])
+          [index before after] (binding [xdb/*return-history?* true]
+                                 (swap! cursor assoc :v 2))]
+      (is (= 1 index))
+      (is (= {:v 1} (xdb/materialize before)))
+      (is (= {:v 2} (xdb/materialize after)))
+      (is (= {:nested {:v 2} :untouched 99} (xdb/materialize (xdb/deref-at db index)))))))
+
 (deftest CursorTest
   (with-open [db (xdb/xit-db :memory)]
     (reset! db {:foo {:bar [1 2 3 {:hidden true} 5]}})
