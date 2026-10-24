@@ -1,14 +1,19 @@
 (ns xitdb.db
   (:require
+    [clojure.java.io :as io]
     [xitdb.common :as common]
     [xitdb.util.conversion :as conversion]
     [xitdb.util.db-context :as db-context]
     [xitdb.xitdb-types :as xtypes])
   (:import
     [io.github.radarroark.xitdb
-     Core CoreBufferedFile CoreMemory CoreReadOnlyFile Database Database$ContextFunction FileOffsetMap Hasher
-     RandomAccessBufferedFile RandomAccessMemory ReadArrayList ReadCursor WriteArrayList WriteCursor]
-    [java.io File RandomAccessFile]
+     Core CoreBufferedFile CoreFile CoreMemory CoreReadOnlyFile Database Database$ContextFunction
+     Database$EndOfStreamException FileOffsetMap Hasher RandomAccessBufferedFile RandomAccessMemory
+     ReadArrayList ReadCursor ReplicaState WriteArrayList WriteCursor WriteHashMap]
+    [java.io ByteArrayInputStream ByteArrayOutputStream File IOException InputStream OutputStream
+     RandomAccessFile SequenceInputStream]
+    [java.nio ByteBuffer]
+    [java.nio.channels FileLock]
     [java.nio.file Files]
     [java.nio.file.attribute FileAttribute]
     [java.security MessageDigest]
@@ -102,13 +107,19 @@
               cursor (conversion/keypath-cursor root-cursor base-keypath)]
           (.write cursor (conversion/v->slot! cursor retval)))))))
 
-(defn- with-file-lock [^Database db f]
+(defn- lock-file
+  "Locks the file of `db`, if it has one. Returns the lock, or nil."
+  ^FileLock [^Database db]
   (let [core (.-core db)]
-    (if (instance? CoreBufferedFile core)
-      (with-open [held (or (.tryLock (.getChannel (.-file ^CoreBufferedFile core)))
-                          (throw (IllegalStateException. "Database is locked for writing")))]
-        (f))
-      (f))))
+    (when (instance? CoreBufferedFile core)
+      (or (.tryLock (.getChannel (.-file ^CoreBufferedFile core)))
+          (throw (IllegalStateException. "Database is locked for writing"))))))
+
+(defn- with-file-lock [^Database db f]
+  (if-let [held (lock-file db)]
+    (with-open [held held]
+      (f))
+    (f)))
 
 (defn xitdb-swap-with-lock!
   "Performs the 'swap!' operation while locking `db.lock`.
@@ -294,8 +305,17 @@
                 _                (.rootCursor source)
                 offsets-file     (File/createTempFile "compact_offsets" ".db")
                 compacted        (try
-                                   (with-open [offset-map (FileOffsetMap. (RandomAccessFile. offsets-file "rw"))]
-                                     (.compact source target-core offset-map))
+                                   (with-open [offsets-core (CoreFile. (RandomAccessFile. offsets-file "rw"))]
+                                     ;; compact inside one transaction on the scratch database,
+                                     ;; so the offsets aren't each committed separately
+                                     (let [offsets-db (Database. offsets-core (Hasher. (MessageDigest/getInstance "SHA-256")))
+                                           result     (volatile! nil)]
+                                       (.runContext offsets-db
+                                                    (reify Database$ContextFunction
+                                                      (^void run [_ ^WriteCursor cursor]
+                                                        (vreset! result (.compact source target-core (FileOffsetMap. (WriteHashMap. cursor))))
+                                                        nil)))
+                                       @result))
                                    (catch Throwable t
                                      (delete-after-failure! offsets-file t)
                                      (throw t)))]
@@ -309,6 +329,113 @@
             (throw t))))
       (finally
         (.unlock lock)))))
+
+
+;; Replication
+
+(defn replica-state
+  "Describes what the replica `xdb` already has, so a source database can send
+  it only the bytes it is missing. Returns a map of plain values,
+  `{:committed-size n :checksum c}`, which can be sent to the source any way you
+  like and passed to `(io/input-stream source :since state)`."
+  [^XITDBDatabase xdb]
+  (let [state (.replicaState ^Database (.-rodb xdb))]
+    {:committed-size (.committedSize state)
+     :checksum       (.checksum state)}))
+
+(def ^:private frame-length
+  ;; replication streams begin with two big-endian longs: where the bytes
+  ;; start in the database and how many there are
+  16)
+
+(defn- updates-input-stream
+  "Opens a stream of the bytes that the replica described by `since` is missing,
+  preceded by their start and length. Without `since`, or if the replica can't
+  be extended, it contains the whole database. Only committed data is read, so
+  this doesn't block writers."
+  ^InputStream [^XITDBDatabase xdb since]
+  (let [^Database db (.-rodb xdb)
+        start        (if since
+                       (.replicationStart db (ReplicaState. (:committed-size since) (:checksum since)))
+                       0)
+        end          (.committedSize db)
+        frame        (doto (ByteBuffer/allocate frame-length)
+                       (.putLong start)
+                       (.putLong (- end start)))]
+    (SequenceInputStream. (ByteArrayInputStream. (.array frame)) (.openCommitted db start end))))
+
+(defn- updates-output-stream
+  "Opens a stream that applies bytes from `updates-input-stream` to the replica
+  `xdb` when it is closed. Holds the write lock until then, like `swap!`, so it
+  must be closed on the thread that opened it."
+  ^OutputStream [^XITDBDatabase xdb]
+  (let [^ReentrantLock lock (.-lock xdb)
+        ^Database writer    (.-rwdb xdb)
+        ^Database reader    (.-rodb xdb)]
+    (when (.isHeldByCurrentThread lock)
+      (throw (IllegalStateException. "a replica should not be written to from swap! or reset!")))
+    (.lock lock)
+    (let [file-lock (try
+                      (lock-file writer)
+                      (catch Throwable t
+                        (.unlock lock)
+                        (throw t)))
+          ;; holds the start of the stream until the frame has arrived
+          prefix    (ByteArrayOutputStream.)
+          out       (volatile! nil)
+          failed?   (volatile! false)
+          closed?   (volatile! false)
+          write!    (fn [^bytes buffer off len]
+                      (when @closed?
+                        (throw (IOException. "stream closed")))
+                      (try
+                        (if-let [^OutputStream o @out]
+                          (.write o buffer (int off) (int len))
+                          (let [_         (.write prefix buffer (int off) (int len))
+                                ^bytes bs (.toByteArray prefix)]
+                            (when (>= (alength bs) frame-length)
+                              (let [bb (ByteBuffer/wrap bs)
+                                    o  (.openReplicated writer (.getLong bb 0) (.getLong bb 8))]
+                                (vreset! out o)
+                                (.write o bs frame-length (- (alength bs) frame-length))))))
+                        (catch Throwable t
+                          (vreset! failed? true)
+                          (throw t))))]
+      (proxy [OutputStream] []
+        (write
+          ([b]
+           (if (bytes? b)
+             (write! b 0 (alength ^bytes b))
+             (write! (byte-array [(unchecked-byte b)]) 0 1)))
+          ([buffer off len]
+           (write! buffer off len)))
+        (close []
+          (when-not @closed?
+            (vreset! closed? true)
+            (try
+              ;; after a failed write, the replica stays at its last commit
+              (when-not @failed?
+                (let [^OutputStream o (or @out (throw (Database$EndOfStreamException.)))]
+                  ;; commits, or throws if the stream ended early
+                  (.close o)
+                  ;; if the replica is now a copy of a different file, the reader
+                  ;; handle needs its header and file ID too
+                  (set! (.-header reader) (.-header writer))
+                  (set! (.-fileId reader) (.-fileId writer))))
+              (finally
+                (try
+                  (some-> ^FileLock file-lock .close)
+                  (finally
+                    (.unlock lock)))))))))))
+
+;; (io/input-stream source :since state) opens the bytes the replica described
+;; by `state` is missing, and (io/output-stream replica) applies them, so
+;; (io/copy in out) replicates. see the README.
+(extend XITDBDatabase
+  io/IOFactory
+  (assoc io/default-streams-impl
+    :make-input-stream (fn [xdb opts] (updates-input-stream xdb (:since opts)))
+    :make-output-stream (fn [xdb _opts] (updates-output-stream xdb))))
 
 
 (deftype XITDBCursor [xdb keypath]
