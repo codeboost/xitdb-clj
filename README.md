@@ -286,6 +286,46 @@ If you want to prevent data from being mutated within a transaction, you must `f
 
 Note that this is not doing an expensive copy of the fruits vector. We are benefitting from structural sharing, just like in-memory Clojure data. The reason we have to `freeze!` is because the default is different than Clojure; in Clojure, you must opt-in to temporary mutability by using transients, whereas in xitdb you must opt-out of it.
 
+## Replication
+
+Since xitdb files are append-only, it is absurdly easy to replicate them: just copy the bytes that the destination doesn't have yet! Other databases like SQLite require complex external tools to replicate. In xitdb, once a transaction is committed, its bytes never change, except for a small header that points at the latest commit. That makes it easy to keep a copy of a database (a "replica") up to date, whether it's another file on the same machine or on another machine across a network.
+
+Databases work with `clojure.java.io`, so a sync is just an `io/copy`:
+
+```clojure
+(require '[clojure.java.io :as io])
+
+(with-open [in  (io/input-stream source :since (xdb/replica-state replica))
+            out (io/output-stream replica)]
+  (io/copy in out))
+```
+
+`replica-state` describes what the replica already has, as a map of two numbers. `io/input-stream` opens a stream of the bytes that the replica is missing, and `io/output-stream` writes them to the replica, committing them when it is closed. The output stream holds the replica's write lock until then, so close it on the thread that opened it (`with-open` does this).
+
+Since the state is plain data and the bytes are an ordinary `InputStream`, replicating across a network works the same way. For example, the source can serve updates from a Ring handler, and the replica can copy them straight from the response:
+
+```clojure
+;; on the source (with ring.middleware.params/wrap-params)
+(defn updates-handler [{:keys [query-params]}]
+  {:status 200
+   :body   (io/input-stream db :since {:committed-size (parse-long (query-params "size"))
+                                       :checksum       (parse-long (query-params "checksum"))})})
+
+;; on the replica
+(let [{:keys [committed-size checksum]} (xdb/replica-state replica)]
+  (with-open [in  (io/input-stream (str "http://example.com/updates?size=" committed-size "&checksum=" checksum))
+              out (io/output-stream replica)]
+    (io/copy in out)))
+```
+
+Without `:since`, the stream contains the whole database, which is handy for copying it into a new database as a backup.
+
+A replica can start out as any new database. Each database has a random file ID, so the first sync sees that the replica isn't a copy of the source and sends the entire source file, replacing the replica. The same happens if the replica can no longer be extended, such as when the source is replaced by a compacted copy (which is a new file) or restored from an older backup.
+
+If a sync is interrupted, such as by a dropped connection, closing the output stream throws, the replica stays at its last commit, and the next sync discards whatever was partially written. The exception is a full copy: the replica is truncated before it begins, so an interrupted full copy leaves the replica unusable until the next sync succeeds.
+
+Treat a replica as read-only: don't `swap!` or `reset!` it. Once a replica has commits of its own, it is no longer a copy of the source, so the next sync replaces it with a full copy and those commits are lost.
+
 ### Architecture
 `xitdb-clj` builds on [xitdb-java](https://github.com/xit-vcs/xitdb-java) which implements:
 
