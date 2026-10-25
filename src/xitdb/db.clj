@@ -8,10 +8,11 @@
   (:import
     [io.github.radarroark.xitdb
      Core CoreBufferedFile CoreFile CoreMemory CoreReadOnlyFile Database Database$ContextFunction
-     Database$EndOfStreamException FileOffsetMap Hasher RandomAccessBufferedFile RandomAccessMemory
+     Database$EndOfStreamException Database$InvalidDatabaseException Database$TruncatedDatabaseException
+     Database$UnexpectedTagException FileOffsetMap Hasher RandomAccessBufferedFile RandomAccessMemory
      ReadArrayList ReadCursor ReplicaState WriteArrayList WriteCursor WriteHashMap]
-    [java.io ByteArrayInputStream ByteArrayOutputStream File IOException InputStream OutputStream
-     RandomAccessFile SequenceInputStream]
+    [java.io ByteArrayInputStream ByteArrayOutputStream EOFException File IOException InputStream
+     OutputStream RandomAccessFile SequenceInputStream]
     [java.nio ByteBuffer]
     [java.nio.channels FileLock]
     [java.nio.file Files]
@@ -337,11 +338,34 @@
   "Describes what the replica `xdb` already has, so a source database can send
   it only the bytes it is missing. Returns a map of plain values,
   `{:committed-size n :checksum c}`, which can be sent to the source any way you
-  like and passed to `(io/input-stream source :since state)`."
+  like and passed to `(io/input-stream source :since state)`.
+
+  A replica whose file is broken, such as one left behind by an interrupted
+  full copy, has nothing a source could extend, so it is described as empty,
+  `{:committed-size 0 :checksum 0}`, and the next sync sends a full copy."
   [^XITDBDatabase xdb]
-  (let [state (.replicaState ^Database (.-rodb xdb))]
-    {:committed-size (.committedSize state)
-     :checksum       (.checksum state)}))
+  (let [state (try
+                (.replicaState ^Database (.-rodb xdb))
+                (catch EOFException _ nil)
+                (catch Database$InvalidDatabaseException _ nil)
+                (catch Database$TruncatedDatabaseException _ nil)
+                (catch Database$UnexpectedTagException _ nil))]
+    (if state
+      {:committed-size (.committedSize state)
+       :checksum       (.checksum state)}
+      {:committed-size 0 :checksum 0})))
+
+(defn- since->replica-state
+  "Converts a `replica-state` map to the engine's `ReplicaState`, refusing
+  anything else so that a malformed state, such as one built from missing
+  query parameters, fails with a clear message instead of a NullPointerException."
+  ^ReplicaState [since]
+  (let [{:keys [committed-size checksum]} since]
+    (when-not (and (map? since) (nat-int? committed-size) (int? checksum))
+      (throw (IllegalArgumentException.
+               (str ":since must be a map of :committed-size and :checksum as returned by replica-state, got "
+                    (pr-str since)))))
+    (ReplicaState. (long committed-size) (long checksum))))
 
 (def ^:private frame-length
   ;; replication streams begin with two big-endian longs: where the bytes
@@ -356,7 +380,7 @@
   ^InputStream [^XITDBDatabase xdb since]
   (let [^Database db (.-rodb xdb)
         start        (if since
-                       (.replicationStart db (ReplicaState. (:committed-size since) (:checksum since)))
+                       (.replicationStart db (since->replica-state since))
                        0)
         end          (.committedSize db)
         frame        (doto (ByteBuffer/allocate frame-length)
@@ -419,9 +443,10 @@
                   ;; commits, or throws if the stream ended early
                   (.close o)
                   ;; if the replica is now a copy of a different file, the reader
-                  ;; handle needs its header and file ID too
-                  (set! (.-header reader) (.-header writer))
-                  (set! (.-fileId reader) (.-fileId writer))))
+                  ;; handle needs its header and file ID too. the header is
+                  ;; volatile, so writing it last publishes the file ID with it
+                  (set! (.-fileId reader) (.-fileId writer))
+                  (set! (.-header reader) (.-header writer))))
               (finally
                 (try
                   (some-> ^FileLock file-lock .close)
@@ -435,7 +460,12 @@
   io/IOFactory
   (assoc io/default-streams-impl
     :make-input-stream (fn [xdb opts] (updates-input-stream xdb (:since opts)))
-    :make-output-stream (fn [xdb _opts] (updates-output-stream xdb))))
+    :make-output-stream (fn [xdb _opts] (updates-output-stream xdb))
+    ;; the streams are binary, so a Reader or Writer over them would be a mistake
+    :make-reader (fn [_xdb _opts]
+                   (throw (IllegalArgumentException. "Cannot open a database as a Reader; use io/input-stream")))
+    :make-writer (fn [_xdb _opts]
+                   (throw (IllegalArgumentException. "Cannot open a database as a Writer; use io/output-stream")))))
 
 
 (deftype XITDBCursor [xdb keypath]
