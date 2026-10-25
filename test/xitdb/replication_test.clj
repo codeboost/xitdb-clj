@@ -151,3 +151,52 @@
       @writer
       (is (= {:b 2} (xdb/materialize @replica)))
       (is (= 2 (count replica))))))
+
+(deftest interrupted-full-copy-is-recovered-by-the-next-sync
+  (doseq [kind [:memory :file]
+          ;; cut before the root header is complete, and one byte before the end
+          cut  [24 dec]]
+    (testing (str (name kind) " replica, cut at " (if (fn? cut) "the last byte" cut))
+      (with-open [source  (xdb/xit-db :memory)
+                  replica (xdb/xit-db (location kind))]
+        (reset! source {:n 1})
+        (sync! source replica)
+        ;; a compacted source is a new file, so the next sync is a full copy
+        (with-open [compacted (xdb/compact source :memory)]
+          (let [update (update-bytes compacted replica)
+                len    (if (fn? cut) (cut (alength update)) cut)]
+            (is (zero? (frame-start update)))
+            (is (thrown? Database$EndOfStreamException
+                         (with-open [out (io/output-stream replica)]
+                           (.write out update 0 len))))
+            ;; the replica is broken, so it is described as empty
+            (is (= {:committed-size 0 :checksum 0} (xdb/replica-state replica)))
+            (is (zero? (frame-start (update-bytes compacted replica))))
+            (sync! compacted replica)
+            (is (= {:n 1} (xdb/materialize @replica)))
+            (is (= (xdb/replica-state compacted) (xdb/replica-state replica)))
+            ;; and it can be extended again afterwards
+            (swap! compacted assoc :n 2)
+            (is (pos? (frame-start (update-bytes compacted replica))))
+            (sync! compacted replica)
+            (is (= {:n 2} (xdb/materialize @replica)))))))))
+
+(deftest since-must-be-a-replica-state
+  (with-open [source (xdb/xit-db :memory)]
+    (reset! source {:a 1})
+    (doseq [since [{}
+                   {:committed-size nil :checksum nil}
+                   {:committed-size "1" :checksum 2}
+                   {:committed-size -1 :checksum 0}
+                   [0 0]]]
+      (is (thrown-with-msg? IllegalArgumentException #":since must be a map"
+                            (io/input-stream source :since since))
+          (pr-str since)))))
+
+(deftest readers-and-writers-are-refused
+  (with-open [db (xdb/xit-db :memory)]
+    (is (thrown? IllegalArgumentException (io/reader db)))
+    (is (thrown? IllegalArgumentException (io/writer db)))
+    ;; neither took the write lock
+    (reset! db {:a 1})
+    (is (= {:a 1} (xdb/materialize @db)))))
