@@ -322,7 +322,9 @@ Without `:since`, the stream contains the whole database, which is handy for cop
 
 A replica can start out as any new database. Each database has a random file ID, so the first sync sees that the replica isn't a copy of the source and sends the entire source file, replacing the replica. The same happens if the replica can no longer be extended, such as when the source is replaced by a compacted copy (which is a new file) or restored from an older backup.
 
-If a sync is interrupted, such as by a dropped connection, closing the output stream throws, the replica stays at its last commit, and the next sync discards whatever was partially written. The exception is a full copy: the replica is truncated before it begins, so an interrupted full copy leaves the replica unusable until the next sync succeeds. `replica-state` describes such a replica as empty, so that sync is a full copy again.
+If a sync is interrupted, such as by a dropped connection, closing the output stream throws and the replica stays at its last commit. That includes full copies: a full copy is written beside the replica (to a temporary file next to a file replica) and only replaces it once it has been committed, so the replica can be read as usual during the copy, and an interrupted copy leaves it as it was.
+
+A full copy replaces a file replica by renaming the copy over its file. Values read from the replica before then can no longer be read and throw, rather than reading the new file (in a memory replica they keep the old data). Other handles open on the replica's file, such as in another process, keep reading the old file until they are reopened.
 
 Treat a replica as read-only: don't `swap!` or `reset!` it. Once a replica has commits of its own, it is no longer a copy of the source, so the next sync replaces it with a full copy and those commits are lost.
 

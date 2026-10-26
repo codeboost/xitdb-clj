@@ -4,8 +4,11 @@
     [clojure.test :refer :all]
     [xitdb.db :as xdb])
   (:import
-    [io.github.radarroark.xitdb Database$EndOfStreamException Database$InvalidRangeException]
+    [io.github.radarroark.xitdb CoreMemory Database Database$EndOfStreamException Database$InvalidRangeException
+     Hasher RandomAccessMemory]
     [java.io ByteArrayInputStream DataInputStream]
+    [java.nio ByteBuffer]
+    [java.security MessageDigest]
     [java.nio.file Files]
     [java.nio.file.attribute FileAttribute]
     [java.util UUID]))
@@ -152,7 +155,10 @@
       (is (= {:b 2} (xdb/materialize @replica)))
       (is (= 2 (count replica))))))
 
-(deftest interrupted-full-copy-is-recovered-by-the-next-sync
+(defn- staging-files []
+  (filter #(.endsWith (.getName ^java.io.File %) ".tmp") (.listFiles ^java.io.File *temp-dir*)))
+
+(deftest interrupted-full-copy-leaves-the-replica-as-it-was
   (doseq [kind [:memory :file]
           ;; cut before the root header is complete, and one byte before the end
           cut  [24 dec]]
@@ -163,23 +169,117 @@
         (sync! source replica)
         ;; a compacted source is a new file, so the next sync is a full copy
         (with-open [compacted (xdb/compact source :memory)]
+          (swap! compacted assoc :n 2)
           (let [update (update-bytes compacted replica)
-                len    (if (fn? cut) (cut (alength update)) cut)]
+                len    (if (fn? cut) (cut (alength update)) cut)
+                state  (xdb/replica-state replica)]
             (is (zero? (frame-start update)))
             (is (thrown? Database$EndOfStreamException
                          (with-open [out (io/output-stream replica)]
                            (.write out update 0 len))))
-            ;; the replica is broken, so it is described as empty
-            (is (= {:committed-size 0 :checksum 0} (xdb/replica-state replica)))
-            (is (zero? (frame-start (update-bytes compacted replica))))
-            (sync! compacted replica)
+            (is (= state (xdb/replica-state replica)))
             (is (= {:n 1} (xdb/materialize @replica)))
+            (is (empty? (staging-files)))
+            (sync! compacted replica)
+            (is (= {:n 2} (xdb/materialize @replica)))
             (is (= (xdb/replica-state compacted) (xdb/replica-state replica)))
             ;; and it can be extended again afterwards
-            (swap! compacted assoc :n 2)
+            (swap! compacted assoc :n 3)
             (is (pos? (frame-start (update-bytes compacted replica))))
             (sync! compacted replica)
-            (is (= {:n 2} (xdb/materialize @replica)))))))))
+            (is (= {:n 3} (xdb/materialize @replica)))))))))
+
+(deftest replica-can-be-read-during-a-full-copy
+  (doseq [kind [:memory :file]]
+    (testing (name kind)
+      (with-open [source  (xdb/xit-db :memory)
+                  replica (xdb/xit-db (location kind))]
+        (reset! replica {:old true})
+        (reset! source {:new true})
+        (let [update (update-bytes source replica)
+              half   (quot (alength update) 2)]
+          (is (zero? (frame-start update)))
+          (with-open [out (io/output-stream replica)]
+            (.write out update 0 half)
+            (is (= {:old true} @(future (xdb/materialize @replica))))
+            (.write out update half (- (alength update) half)))
+          (is (= {:new true} (xdb/materialize @replica)))
+          (is (empty? (staging-files))))))))
+
+(deftest values-read-before-a-full-copy-never-read-the-copy
+  (testing "a memory replica's old values keep the old data"
+    (with-open [source  (xdb/xit-db :memory)
+                replica (xdb/xit-db :memory)]
+      (reset! replica {:old [1 2 3]})
+      (reset! source {:new [4 5 6]})
+      (let [old @replica]
+        (sync! source replica)
+        (is (= {:new [4 5 6]} (xdb/materialize @replica)))
+        (is (= {:old [1 2 3]} (xdb/materialize old))))))
+  (testing "a file replica's old values throw"
+    (with-open [source  (xdb/xit-db :memory)
+                replica (xdb/xit-db (location :file))]
+      (reset! replica {:old [1 2 3]})
+      (reset! source {:new [4 5 6]})
+      (let [old @replica]
+        (sync! source replica)
+        (is (= {:new [4 5 6]} (xdb/materialize @replica)))
+        (is (thrown? IllegalStateException (xdb/materialize old)))
+        ;; the replica can still be written to and extended
+        (swap! source assoc :more true)
+        (sync! source replica)
+        (is (= {:new [4 5 6] :more true} (xdb/materialize @replica)))))))
+
+(deftest failed-sync-leaves-nothing-to-write-later
+  ;; two handles on one replica file: a sync through `a` fails, then one
+  ;; through `b` commits other bytes at the same place. closing `a` must not
+  ;; write its leftovers over them.
+  (let [path (location :file)]
+    (with-open [source (xdb/xit-db :memory)
+                fork   (xdb/xit-db :memory)]
+      (reset! source {:n 1})
+      (let [a (xdb/xit-db path)]
+        (try
+          (sync! source a)
+          ;; fork is a copy of source, so both can extend the replica
+          (sync! source fork)
+          (swap! source assoc :from :source)
+          (swap! fork assoc :from :fork)
+          (let [update (update-bytes source a)]
+            (is (thrown? Database$EndOfStreamException
+                         (with-open [out (io/output-stream a)]
+                           (.write out update 0 (dec (alength update)))))))
+          (with-open [b (xdb/xit-db path)]
+            (sync! fork b))
+          (finally
+            (.close a))))
+      (with-open [replica (xdb/xit-db path)]
+        (is (= {:n 1 :from :fork} (xdb/materialize @replica)))
+        (is (= (xdb/replica-state fork) (xdb/replica-state replica)))))))
+
+(defn- full-copy-bytes
+  "A replication stream holding the whole of the engine database `db`."
+  ^bytes [^Database db]
+  (let [end (.committedSize db)]
+    (with-open [in (.openCommitted db 0 end)]
+      (byte-array (concat (.array (doto (ByteBuffer/allocate 16) (.putLong 0) (.putLong end)))
+                          (.readAllBytes in))))))
+
+(deftest full-copy-with-another-key-hash-format-is-refused
+  (doseq [kind [:memory :file]]
+    (testing (name kind)
+      (with-open [replica (xdb/xit-db (location kind))]
+        (reset! replica {:a 1})
+        (let [state   (xdb/replica-state replica)
+              ;; a database made with xitdb-java's default hasher, not ours
+              foreign (Database. (CoreMemory. (RandomAccessMemory.))
+                                 (Hasher. (MessageDigest/getInstance "SHA-1")))]
+          (is (thrown-with-msg? IllegalArgumentException #"key hash format"
+                                (with-open [out (io/output-stream replica)]
+                                  (.write out (full-copy-bytes foreign)))))
+          (is (= state (xdb/replica-state replica)))
+          (is (= {:a 1} (xdb/materialize @replica)))
+          (is (empty? (staging-files))))))))
 
 (deftest since-must-be-a-replica-state
   (with-open [source (xdb/xit-db :memory)]
