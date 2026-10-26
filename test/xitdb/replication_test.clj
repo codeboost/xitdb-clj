@@ -6,7 +6,7 @@
   (:import
     [io.github.radarroark.xitdb CoreMemory Database Database$EndOfStreamException Database$InvalidRangeException
      Hasher RandomAccessMemory]
-    [java.io ByteArrayInputStream DataInputStream]
+    [java.io ByteArrayInputStream DataInputStream InputStream IOException SequenceInputStream]
     [java.nio ByteBuffer]
     [java.security MessageDigest]
     [java.nio.file Files]
@@ -313,6 +313,55 @@
           (is (= state (xdb/replica-state replica)))
           (is (= {:a 1} (xdb/materialize @replica)))
           (is (empty? (staging-files))))))))
+
+(defn- failing-stream
+  "Delivers the first `n` bytes of `bs`, then fails like a dropped connection."
+  ^InputStream [^bytes bs n]
+  (SequenceInputStream.
+    (ByteArrayInputStream. bs 0 n)
+    (proxy [InputStream] []
+      (read
+        ([] (throw (IOException. "connection reset")))
+        ([_ _ _] (throw (IOException. "connection reset")))))))
+
+(deftest replicate!-applies-updates
+  (with-open [source  (xdb/xit-db :memory)
+              replica (xdb/xit-db (location :file))]
+    (reset! source {:n 1})
+    (with-open [in (io/input-stream source :since (xdb/replica-state replica))]
+      (is (nil? (xdb/replicate! replica in))))
+    (is (= {:n 1} (xdb/materialize @replica)))
+    (swap! source assoc :n 2)
+    (with-open [in (io/input-stream source :since (xdb/replica-state replica))]
+      (xdb/replicate! replica in))
+    (is (= {:n 2} (xdb/materialize @replica)))
+    (is (= (xdb/replica-state source) (xdb/replica-state replica)))))
+
+(deftest replicate!-throws-the-read-error
+  (doseq [full-copy? [true false]]
+    (testing (if full-copy? "full copy" "extension")
+      (with-open [source  (xdb/xit-db :memory)
+                  replica (xdb/xit-db (location :file))]
+        (reset! source {:n 1})
+        (when-not full-copy?
+          (sync! source replica))
+        (swap! source assoc :n 2)
+        (let [update (update-bytes source replica)
+              state  (xdb/replica-state replica)
+              before (xdb/materialize @replica)
+              error  (try
+                       (xdb/replicate! replica (failing-stream update (quot (alength update) 2)))
+                       nil
+                       (catch Throwable t t))]
+          (is (= (zero? (frame-start update)) full-copy?))
+          (is (instance? IOException error))
+          (is (= "connection reset" (some-> error .getMessage)))
+          (is (some #(instance? Database$EndOfStreamException %) (some-> error .getSuppressed)))
+          (is (= state (xdb/replica-state replica)))
+          (is (= before (xdb/materialize @replica)))
+          ;; the write lock was released
+          (sync! source replica)
+          (is (= {:n 2} (xdb/materialize @replica))))))))
 
 (deftest since-must-be-a-replica-state
   (with-open [source (xdb/xit-db :memory)]

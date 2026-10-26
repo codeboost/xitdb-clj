@@ -318,11 +318,7 @@
 
   Holds the source's write lock for the whole copy, so `swap!` and `reset!` on
   `xdb` block until compaction finishes. Must not be called from inside a
-  `swap!` or `reset!` on `xdb`; doing so throws IllegalStateException.
-
-  Refreshes the source writer's header before copying, so a handle opened
-  before another handle initialized the file compacts the current value
-  instead of publishing an empty database."
+  `swap!` or `reset!` on `xdb`; doing so throws IllegalStateException."
   [^XITDBDatabase xdb target]
   (let [^ReentrantLock lock (.-lock xdb)]
     (when (.isHeldByCurrentThread lock)
@@ -333,7 +329,6 @@
             ^Core target-core (:core target-info)]
         (try
           (let [^Database source (.rwdb ^DatabaseHandles xdb)
-                _                (.rootCursor source)
                 offsets-file     (File/createTempFile "compact_offsets" ".db")
                 compacted        (try
                                    (with-open [offsets-core (CoreFile. (RandomAccessFile. offsets-file "rw"))]
@@ -600,6 +595,30 @@
                    (throw (IllegalArgumentException. "Cannot open a database as a Reader; use io/input-stream")))
     :make-writer (fn [_xdb _opts]
                    (throw (IllegalArgumentException. "Cannot open a database as a Writer; use io/output-stream")))))
+
+(defn replicate!
+  "Applies the updates read from `in` to the replica `xdb` and commits them.
+  `in` is an InputStream of the bytes from `(io/input-stream source :since
+  state)`, such as that stream itself or an HTTP response body carrying it. It
+  is read to the end but not closed.
+
+  This is `(io/copy in (io/output-stream xdb))`, except that if reading `in`
+  fails, such as when a connection drops, that exception is thrown, with the
+  output stream's failure to commit the partial update attached as suppressed.
+  `with-open` would throw the latter instead. Unless the update had already
+  arrived in full, the replica stays at its last commit."
+  [xdb ^InputStream in]
+  (let [^OutputStream out (io/output-stream xdb)]
+    (try
+      (io/copy in out)
+      (catch Throwable t
+        (try
+          (.close out)
+          (catch Throwable close-error
+            (.addSuppressed t close-error)))
+        (throw t)))
+    (.close out)
+    nil))
 
 
 (deftype XITDBCursor [xdb keypath]

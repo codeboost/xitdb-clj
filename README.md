@@ -305,7 +305,7 @@ Databases work with `clojure.java.io`, so a sync is just an `io/copy`:
 
 `replica-state` describes what the replica already has, as a map of two numbers. `io/input-stream` opens a stream of the bytes that the replica is missing, and `io/output-stream` writes them to the replica, committing them when it is closed. The output stream holds the replica's write lock until then, so close it on the thread that opened it (`with-open` does this).
 
-Since the state is plain data and the bytes are an ordinary `InputStream`, replicating across a network works the same way. For example, the source can serve updates from a Ring handler, and the replica can copy them straight from the response:
+Since the state is plain data and the bytes are an ordinary `InputStream`, replicating across a network works the same way. For example, the source can serve updates from a Ring handler, and the replica can apply them straight from the response:
 
 ```clojure
 ;; on the source (with ring.middleware.params/wrap-params)
@@ -316,10 +316,11 @@ Since the state is plain data and the bytes are an ordinary `InputStream`, repli
 
 ;; on the replica
 (let [{:keys [committed-size checksum]} (xdb/replica-state replica)]
-  (with-open [in  (io/input-stream (str "http://example.com/updates?size=" committed-size "&checksum=" checksum))
-              out (io/output-stream replica)]
-    (io/copy in out)))
+  (with-open [in (io/input-stream (str "http://example.com/updates?size=" committed-size "&checksum=" checksum))]
+    (xdb/replicate! replica in)))
 ```
+
+`replicate!` does the same `io/copy`, but if the connection drops, it throws that error. With `with-open` around both streams, you would get the exception from closing the output stream on an incomplete update instead, which hides the cause.
 
 Without `:since`, the stream contains the whole database, which is handy for copying it into a new database as a backup.
 
