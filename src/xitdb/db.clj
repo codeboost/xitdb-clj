@@ -443,9 +443,7 @@
                   ;; commits, or throws if the stream ended early
                   (.close o)
                   ;; if the replica is now a copy of a different file, the reader
-                  ;; handle needs its header and file ID too. the header is
-                  ;; volatile, so writing it last publishes the file ID with it
-                  (set! (.-fileId reader) (.-fileId writer))
+                  ;; handle needs its header too, which holds the file ID
                   (set! (.-header reader) (.-header writer))))
               (finally
                 (try
