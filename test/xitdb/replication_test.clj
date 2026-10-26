@@ -189,6 +189,39 @@
             (sync! compacted replica)
             (is (= {:n 3} (xdb/materialize @replica)))))))))
 
+(deftest file-replica-reopens-after-an-interrupted-full-copy
+  (let [path (location :file)]
+    (with-open [source (xdb/xit-db :memory)]
+      (reset! source {:n 1})
+      (with-open [replica (xdb/xit-db path)]
+        (reset! replica {:old true})
+        (let [update (update-bytes source replica)]
+          (is (zero? (frame-start update)))
+          (is (thrown? Database$EndOfStreamException
+                       (with-open [out (io/output-stream replica)]
+                         (.write out update 0 (dec (alength update))))))))
+      ;; as if the process had restarted
+      (with-open [replica (xdb/xit-db path)]
+        (is (= {:old true} (xdb/materialize @replica)))
+        (sync! source replica)
+        (is (= {:n 1} (xdb/materialize @replica)))))))
+
+(deftest copying-a-database-into-itself-leaves-it-as-it-was
+  (doseq [kind [:memory :file]]
+    (testing (name kind)
+      (with-open [db (xdb/xit-db (location kind))]
+        (reset! db {:a 1})
+        (swap! db assoc :b 2)
+        (let [state (xdb/replica-state db)]
+          (with-open [in  (io/input-stream db)
+                      out (io/output-stream db)]
+            (io/copy in out))
+          (is (= state (xdb/replica-state db)))
+          (is (= {:a 1 :b 2} (xdb/materialize @db)))
+          (is (= 2 (count db)))
+          (swap! db assoc :c 3)
+          (is (= {:a 1 :b 2 :c 3} (xdb/materialize @db))))))))
+
 (deftest replica-can-be-read-during-a-full-copy
   (doseq [kind [:memory :file]]
     (testing (name kind)

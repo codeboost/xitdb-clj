@@ -60,15 +60,18 @@ For the programmer, a `xitdb` database is like a Clojure atom.
 ;; => 31
 ```
 
-Database files now record the Clojure key-hash format in their header (`clj1`).
-Older, unversioned files are rejected on open: their collection and Date key
-hashes are incompatible with the current encoding. Before upgrading, export
-the data using the version that created the file (`materialize` reads entries
-without looking them up by hash), then import it into a **new** database with
-the current version. Export each `deref-at` value in order if history must be
-preserved. Use a serializer that preserves your value types and sorted
-collections; plain EDN does not round-trip every supported type. Opening an
-incompatible file does not modify it, and compaction does not migrate hashes.
+Version 0.6.0 uses a new file format (from xitdb-java 0.46.0, which adds
+[replication](#replication)), so it can't open files written by 0.5.0 and
+earlier. Database files also record the Clojure key-hash format in their header
+(`clj1`), and files with another key-hash format are rejected too. Opening an
+incompatible file throws `IllegalArgumentException` and does not modify it.
+
+To upgrade, export the data using the version that created the file
+(`materialize` reads entries without looking them up by hash), then import it
+into a **new** database with the current version. Export each `deref-at` value
+in order if history must be preserved. Use a serializer that preserves your
+value types and sorted collections; plain EDN does not round-trip every
+supported type. Compaction does not migrate files.
 
 Records and `NaN` are rejected as map keys and set members, including anywhere
 inside collection-valued keys or members. Writes throw `IllegalArgumentException`

@@ -8,7 +8,7 @@
   (:import
     [io.github.radarroark.xitdb
      Core CoreBufferedFile CoreFile CoreMemory CoreReadOnlyFile Database Database$ContextFunction
-     Database$EndOfStreamException FileOffsetMap Hasher RandomAccessBufferedFile RandomAccessMemory
+     Database$EndOfStreamException Database$InvalidVersionException FileOffsetMap Hasher RandomAccessBufferedFile RandomAccessMemory
      ReadArrayList ReadCursor ReplicaState WriteArrayList WriteCursor WriteHashMap]
     [java.io ByteArrayInputStream ByteArrayOutputStream File IOException InputStream
      OutputStream RandomAccessFile SequenceInputStream]
@@ -37,13 +37,23 @@
 (defn open-database
   "Opens database `filename`.
   If `filename` is `:memory`, returns a memory based db.
-  open-mode can be `r` or `rw`."
+  open-mode can be `r` or `rw`.
+  Files in another file format, such as those written by xitdb-clj 0.5.0 and
+  earlier, or with another key hash format are refused without being modified."
   [filename ^String open-mode]
   (let [^Core core (if (= filename :memory)
                      (CoreMemory. (RandomAccessMemory.))
                      (CoreBufferedFile. (RandomAccessBufferedFile. (File. ^String filename) open-mode)))]
     (try
-      (let [db (Database. core (Hasher. (MessageDigest/getInstance "SHA-1") key-hash-format-id))]
+      (let [db (try
+                 (Database. core (Hasher. (MessageDigest/getInstance "SHA-1") key-hash-format-id))
+                 (catch Database$InvalidVersionException e
+                   (throw (IllegalArgumentException.
+                            (str "Unsupported file format. Files written by xitdb-clj 0.5.0 and earlier "
+                                 "can't be opened by later versions: export the data using the version "
+                                 "that created this file, then import it into a new database. "
+                                 "The original file has not been modified.")
+                            e))))]
         (when-not (= key-hash-format-id (.hashId (.-header db)))
           (throw (IllegalArgumentException.
                    (str "Unsupported key hash format. Export the data using the xitdb-clj version "
