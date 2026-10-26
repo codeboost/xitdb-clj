@@ -23,9 +23,13 @@
     (= tag Tag/ARRAY_LIST) :array-list
     (= tag Tag/LINKED_ARRAY_LIST) :linked-array-list
     (= tag Tag/HASH_MAP) :hash-map
+    (= tag Tag/HASH_SET) :hash-set
+    (= tag Tag/COUNTED_HASH_MAP) :counted-hash-map
+    (= tag Tag/COUNTED_HASH_SET) :counted-hash-set
     (= tag Tag/SORTED_MAP) :sorted-map
     (= tag Tag/SORTED_SET) :sorted-set
     (= tag Tag/KV_PAIR) :kv-pair
+    (= tag Tag/SORTED_KV_PAIR) :sorted-kv-pair
     (= tag Tag/BYTES) :bytes
     (= tag Tag/SHORT_BYTES) :short-bytes
     (= tag Tag/UINT) :uint

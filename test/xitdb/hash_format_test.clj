@@ -2,19 +2,36 @@
   (:require [clojure.java.io :as io]
             [clojure.test :refer :all]
             [xitdb.db :as db])
-  (:import [java.nio.file Files]
+  (:import [io.github.radarroark.xitdb CoreBufferedFile Database Hasher RandomAccessBufferedFile]
+           [java.nio.file Files]
+           [java.security MessageDigest]
            [java.util Arrays Date]))
 
-(deftest legacy-hashes-are-rejected-without-changing-the-file
+(deftest old-format-files-are-rejected-without-changing-the-file
   ;; Written by master at fdebd313 with xitdb-java 0.38.0. Contains two
   ;; history entries, vector/Date map keys, and vector/Date set members.
   (let [file (java.io.File/createTempFile "xitdb-legacy-hashes-" ".db")]
     (try
       (io/copy (io/file "test-resources/legacy-key-hashes.db") file)
       (let [before (Files/readAllBytes (.toPath file))]
+        ;; the file predates xitdb's current format, so xitdb rejects it first
+        (is (thrown-with-msg? IllegalArgumentException #"Unsupported file format.*0\.5\.0.*[Ee]xport"
+                              (with-open [d (db/xit-db (.getPath file))]
+                                (swap! d assoc [1 2] :updated))))
+        (is (Arrays/equals before (Files/readAllBytes (.toPath file)))))
+      (finally (.delete file)))))
+
+(deftest other-key-hash-formats-are-rejected-without-changing-the-file
+  ;; a current-format file made with xitdb-java's default hasher, not ours
+  (let [file (java.io.File/createTempFile "xitdb-other-hashes-" ".db")]
+    (try
+      (.delete file)
+      (with-open [core (CoreBufferedFile. (RandomAccessBufferedFile. file "rw"))]
+        (Database. core (Hasher. (MessageDigest/getInstance "SHA-1"))))
+      (let [before (Files/readAllBytes (.toPath file))]
         (is (thrown-with-msg? IllegalArgumentException #"key hash format.*[Ee]xport"
-                             (with-open [d (db/xit-db (.getPath file))]
-                               (swap! d assoc [1 2] :updated))))
+                              (with-open [d (db/xit-db (.getPath file))]
+                                (swap! d assoc [1 2] :updated))))
         (is (Arrays/equals before (Files/readAllBytes (.toPath file)))))
       (finally (.delete file)))))
 
