@@ -78,6 +78,49 @@ inside collection-valued keys or members. Writes throw `IllegalArgumentException
 instead of silently merging unequal keys. Convert record keys to plain maps
 explicitly if map identity is what you need.
 
+### Compatibility mode: sharing files with other languages
+
+The default Clojure key hashing supports every key type, but the Java and
+TypeScript libraries can't look those keys up and xitdb-clj refuses their files.
+Compat mode hashes string keys the way those libraries do, so both sides can read
+and write the same file:
+
+```clojure
+(def db (xdb/xit-db "from-java.db" {:mode :compat})) ;; also works with :memory
+(get-in @db ["profile" "city"])
+(swap! db assoc "name" "Alice")
+```
+
+The mode is checked against the file. Picking the wrong hashing would silently
+lose lookups and create duplicate keys, so a mismatch throws
+`IllegalArgumentException` and leaves the file unmodified:
+
+| File                            | `{:mode :clojure}` (default) | `{:mode :compat}` |
+|---------------------------------|------------------------------|-------------------|
+| New or empty                    | created with header `clj1`   | created with header `sha1` |
+| Header `clj1`                   | opens                        | rejected |
+| Any other header (`0`, `sha1`…) | rejected                     | opens, header kept (also by `compact`) |
+
+In compat mode, hash map keys and hash set members must be strings, at every
+depth. Writing anything else throws `IllegalArgumentException` and the transaction
+leaves the database unchanged; values can still be any supported type. Reading
+with a non-string key finds nothing (`(:foo m)` is `nil`), and `dissoc` or `disj`
+of one does nothing.
+
+**Do not open an old unversioned xitdb-clj file in compat mode.** Those files have
+header `0`, the same as Java files, so they can't be told apart: lookups would miss
+and writes would create duplicates. Migrate them as described above.
+
+Not supported: Java `SortedMap`s, foreign format tags on values, binary values,
+hashes other than SHA-1, a top-level hash map with no history, and read-only
+opening.
+
+Maps and sets written from native Clojure values are plain, not counted, so Java
+reads them with `ReadHashMap` and `ReadHashSet`, and `count` on them walks the
+whole collection. Editing an existing collection in place keeps its kind, but
+replacing a Java-written counted one with a native value makes it plain. Maps and
+sets in Clojure mode are still counted.
+
 ## Data structures are read lazily from the database
 
 Reading from the database returns wrappers around cursors in the database file:

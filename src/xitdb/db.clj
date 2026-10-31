@@ -25,47 +25,78 @@
 ;; Avoid extra require in your ns
 (def materialize common/materialize)
 
-(def ^:private key-hash-format-id
-  ;; Version the Clojure key encoding, not just the underlying SHA-1 digest.
-  ;; Unversioned files used printer-dependent hashes and cannot be reopened
-  ;; safely with the canonical encoding. Compaction preserves this header ID.
-  (Hasher/stringToId "clj1"))
+;; Header ID of files created in compat mode. Foreign libraries default to ID 0,
+;; but so did old unversioned Clojure files; this ID keeps the files xitdb-clj
+;; creates distinguishable from those. Compaction preserves it as well.
+(def ^:private compat-hash-format-id
+  (Hasher/stringToId "sha1"))
+
+(defn- check-hash-format!
+  "Throws IllegalArgumentException unless mode `mode` can use the key hashing of
+  file `db`. A clj1 file only opens in Clojure mode and any other file only opens
+  in compat mode, because hashing keys the wrong way loses lookups silently."
+  [^Database db mode]
+  (let [clj1? (conversion/clojure-key-hashing? db)]
+    (cond
+      (and (= :clojure mode) (not clj1?))
+      (throw (IllegalArgumentException.
+               (str "Unsupported key hash format. Export the data using the xitdb-clj version "
+                    "that created this file, then import it into a new database. "
+                    "The original file has not been modified. "
+                    "A file written by another language can be opened with {:mode :compat}.")))
+
+      (and (= :compat mode) clj1?)
+      (throw (IllegalArgumentException.
+               (str "This file uses the Clojure key hash format (clj1), which compat mode "
+                    "cannot read. Open it without {:mode :compat}. "
+                    "The original file has not been modified."))))))
+
+(defn- new-database
+  "Opens `core` as a Database whose new file gets header ID `new-file-id`.
+  Rejects files in another file format, such as those written by xitdb-clj 0.5.0
+  and earlier, and files whose key hashes aren't SHA-1, without modifying them."
+  ^Database [^Core core new-file-id]
+  (try
+    (Database. core (Hasher. (MessageDigest/getInstance "SHA-1") new-file-id))
+    (catch Database$InvalidVersionException e
+      (throw (IllegalArgumentException.
+               (str "Unsupported file format. Files written by xitdb-clj 0.5.0 and earlier "
+                    "can't be opened by later versions: export the data using the version "
+                    "that created this file, then import it into a new database. "
+                    "The original file has not been modified.")
+               e)))
+    (catch Database$InvalidHashSizeException e
+      (throw (IllegalArgumentException.
+               (str "Unsupported key hash format: the file's keys are not hashed with SHA-1, "
+                    "which xitdb-clj needs in both Clojure and compat mode. "
+                    "The original file has not been modified.")
+               e)))))
 
 (defn open-database
   "Opens database `filename`.
   If `filename` is `:memory`, returns a memory based db.
   open-mode can be `r` or `rw`.
-  Files in another file format, such as those written by xitdb-clj 0.5.0 and
-  earlier, or with another key hash format are refused without being modified."
-  [filename ^String open-mode]
-  (let [^Core core        (if (= filename :memory)
-                            (CoreMemory. (RandomAccessMemory.))
-                            (CoreBufferedFile. (RandomAccessBufferedFile. (File. ^String filename) open-mode)))
-        hash-format-error (fn [cause]
-                            (IllegalArgumentException.
-                              (str "Unsupported key hash format. Export the data using the xitdb-clj version "
-                                   "that created this file, then import it into a new database. "
-                                   "The original file has not been modified.")
-                              cause))]
-    (try
-      (let [db (try
-                 (Database. core (Hasher. (MessageDigest/getInstance "SHA-1") key-hash-format-id))
-                 (catch Database$InvalidVersionException e
-                   (throw (IllegalArgumentException.
-                            (str "Unsupported file format. Files written by xitdb-clj 0.5.0 and earlier "
-                                 "can't be opened by later versions: export the data using the version "
-                                 "that created this file, then import it into a new database. "
-                                 "The original file has not been modified.")
-                            e)))
-                 ;; the engine checks the digest's size before we can check its ID
-                 (catch Database$InvalidHashSizeException e
-                   (throw (hash-format-error e))))]
-        (when-not (= key-hash-format-id (.hashId (.-header db)))
-          (throw (hash-format-error nil)))
-        db)
-      (catch Throwable t
-        (.close core)
-        (throw t)))))
+  mode is `:clojure` (the default) or `:compat`, see `xit-db`. It picks the header
+  ID of a new file and is checked against the header of an existing one; the
+  hasher passed for an existing file is not used, since the engine keeps that
+  file's own ID."
+  ([filename open-mode]
+   (open-database filename open-mode :clojure))
+  ([filename ^String open-mode mode]
+   (when-not (contains? #{:clojure :compat} mode)
+     (throw (IllegalArgumentException.
+              (str "Unknown mode " (pr-str mode) ", expected :clojure or :compat"))))
+   (let [^Core core (if (= filename :memory)
+                      (CoreMemory. (RandomAccessMemory.))
+                      (CoreBufferedFile. (RandomAccessBufferedFile. (File. ^String filename) open-mode)))]
+     (try
+       (let [new-file-id (if (= :compat mode) compat-hash-format-id conversion/key-hash-format-id)
+             db          (new-database core new-file-id)]
+         (check-hash-format! db mode)
+         db)
+       (catch Throwable t
+         (.close core)
+         (throw t))))))
 
 
 (defn ^WriteArrayList db-history [^Database db]
@@ -271,14 +302,31 @@
   If the file does not exist, it will be created.
   The returned database handle can be used from multiple threads, and so can the
   values read from it. Reads can run in parallel, transactions (eg. `swap!`) will
-  only allow one writer at a time."
-  [filename]
-  (let [^Database writer (open-database filename "rw")]
-    (try
-      (wrap-db filename writer)
-      (catch Throwable t
-        (close-after-failure! (.-core writer) t)
-        (throw t)))))
+  only allow one writer at a time.
+
+  `opts` takes `:mode`, which throws IllegalArgumentException for an unknown value:
+  - `:clojure`, the default, uses the Clojure key encoding, which supports all key
+    types. A new file gets header ID clj1, and a file with any other ID is rejected.
+  - `:compat` shares files with other languages. A string key hashes as its raw
+    UTF-8 bytes; writing any other key or set member throws IllegalArgumentException,
+    reading one finds nothing and removing one does nothing. Native maps and sets
+    are written plain rather than counted, so other languages can read them with
+    their plain hash map and set types, and `count` on them walks the collection.
+    A new file gets header ID sha1, a clj1 file is rejected, and any other file is
+    opened with its ID kept.
+  A rejected file is not modified. The file's header, not `:mode`, decides how keys
+  hash (see `conversion/db-key-hash`). Old unversioned xitdb-clj files have header
+  ID 0 like Java files and cannot be told apart from them, so they must not be
+  opened in compat mode: lookups would miss and writes would create duplicates."
+  ([filename]
+   (xit-db filename nil))
+  ([filename {:keys [mode] :or {mode :clojure}}]
+   (let [^Database writer (open-database filename "rw" mode)]
+     (try
+       (wrap-db filename writer)
+       (catch Throwable t
+         (close-after-failure! (.-core writer) t)
+         (throw t))))))
 
 (defn- create-compact-target [filename]
   (if (= :memory filename)

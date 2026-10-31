@@ -64,7 +64,7 @@
       (with-open [core (CoreBufferedFile. (RandomAccessBufferedFile. file "rw"))]
         (Database. core (Hasher. (MessageDigest/getInstance "SHA-256"))))
       (let [before (Files/readAllBytes (.toPath file))]
-        (is (thrown-with-msg? IllegalArgumentException #"key hash format.*[Ee]xport"
+        (is (thrown-with-msg? IllegalArgumentException #"key hash format.*SHA-1"
                               (with-open [d (db/xit-db (.getPath file))]
                                 (swap! d assoc [1 2] :updated))))
         (is (Arrays/equals before (Files/readAllBytes (.toPath file)))))
