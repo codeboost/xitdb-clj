@@ -9,10 +9,10 @@
     [clojure.lang PersistentTreeMap PersistentTreeSet]
     [java.nio.charset StandardCharsets]
     [io.github.radarroark.xitdb
-     Database Database$Bytes Database$Float Database$Int Database$HashFunction
+     Database Database$Bytes Database$Float Database$Int Database$HashFunction Hasher
      ReadArrayList ReadCursor ReadHashMap ReadHashSet ReadLinkedArrayList ReadSortedMap ReadSortedSet
      Slot Slotted Tag WriteArrayList WriteCountedHashMap WriteCountedHashSet WriteCursor
-     WriteHashMap WriteLinkedArrayList WriteSortedMap WriteSortedSet]))
+     WriteHashMap WriteHashSet WriteLinkedArrayList WriteSortedMap WriteSortedSet]))
 
 (defn xit-tag->keyword
   "Converts a XitDB Tag enum to a corresponding Clojure keyword."
@@ -75,15 +75,40 @@
       (name key))
     key))
 
+;; Version the Clojure key encoding, not just the underlying SHA-1 digest.
+;; Unversioned files used printer-dependent hashes and cannot be reopened
+;; safely with the canonical encoding. Compaction preserves this header ID.
+(def key-hash-format-id
+  (Hasher/stringToId "clj1"))
+
+(defn clojure-key-hashing?
+  "True when the header of `jdb` says its keys use the Clojure encoding (clj1).
+  Any other header means the raw string hashing shared with other languages."
+  [^Database jdb]
+  (= key-hash-format-id (.hashId (.-header jdb))))
+
 (defn db-key-hash
   "Returns the stable hash of key `v`, using an independent engine digest.
-  nil hashes to all-zero bytes. Collections and doubles use the canonical
-  encoding in `xitdb.util.key-hash`, which is type-aware and independent of
-  printer settings and iteration order. The remaining scalar key types hash
+
+  The file's header picks the hashing. A file that is not clj1 (see
+  `clojure-key-hashing?`) hashes a string as its raw UTF-8 bytes, as the Java
+  library's `put(String)` does, and throws IllegalArgumentException for
+  everything else, since other languages could not look such a key up.
+
+  In a clj1 file, nil hashes to all-zero bytes. Collections and doubles use the
+  canonical encoding in `xitdb.util.key-hash`, which is type-aware and independent
+  of printer settings and iteration order. The remaining scalar key types hash
   their format tag followed by a text form: epoch milliseconds for Date and
   `str` for everything else. Throws IllegalArgumentException for other types."
   ^bytes [^Database jdb v]
   (cond
+    (not (clojure-key-hashing? jdb))
+    (if (string? v)
+      (.hash jdb (.getBytes ^String v "UTF-8"))
+      (throw (IllegalArgumentException.
+               (str "Compat mode only supports string map keys and set members, got: "
+                    (pr-str (type v))))))
+
     (nil? v)
     (byte-array (.hashSize (.-header jdb)))
 
@@ -101,6 +126,15 @@
           (update [_ digest]
             (.update digest (.getBytes fmt-tag "UTF-8"))
             (.update digest (.getBytes text "UTF-8"))))))))
+
+(defn db-lookup-hash
+  "The hash for reading or removing key `v`, or nil when the file cannot hold it.
+  Only a non-string key in a compat file gives nil, so those lookups find nothing
+  and those removals do nothing. In a clj1 file this is exactly `db-key-hash`,
+  including its IllegalArgumentException for unsupported types."
+  ^bytes [^Database jdb v]
+  (when (or (string? v) (clojure-key-hashing? jdb))
+    (db-key-hash jdb v)))
 
 (defn ^Slot primitive-for
   "Converts a Clojure primitive value to its corresponding XitDB representation.
@@ -343,9 +377,12 @@
 
 (defn ^WriteCursor map->WriteHashMapCursor!
   "Writes a Clojure map to a XitDB WriteHashMap.
-  Returns the cursor of the created WriteHashMap."
+  The map is counted in a clj1 file and plain otherwise, since plain is what other
+  languages' `ReadHashMap` expects. Returns the cursor of the created WriteHashMap."
   [^WriteCursor cursor m]
-  (let [whm (WriteCountedHashMap. cursor)]
+  (let [^WriteHashMap whm (if (clojure-key-hashing? (.-db cursor))
+                            (WriteCountedHashMap. cursor)
+                            (WriteHashMap. cursor))]
     (doseq [[k v] m]
       (let [hash-value (db-key-hash (-> cursor .db) k)
             key-cursor (.putKeyCursor whm hash-value)
@@ -377,10 +414,13 @@
 
 (defn ^WriteCursor set->WriteCursor!
   "Writes a Clojure set `s` to a XitDB WriteHashSet.
-  Returns the cursor of the created WriteHashSet."
+  The set is counted in a clj1 file and plain otherwise, since plain is what other
+  languages' `ReadHashSet` expects. Returns the cursor of the created WriteHashSet."
   [^WriteCursor cursor s]
-  (let [whm (WriteCountedHashSet. cursor)
-        db  (-> cursor .db)]
+  (let [db  (-> cursor .db)
+        ^WriteHashSet whm (if (clojure-key-hashing? db)
+                            (WriteCountedHashSet. cursor)
+                            (WriteHashSet. cursor))]
     (doseq [v s]
       (let [hash-code (db-key-hash db v)
             cursor    (.putCursor whm hash-code)]

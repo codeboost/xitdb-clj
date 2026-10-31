@@ -126,18 +126,24 @@
 (defn map-dissoc-key!
   "Removes a key-value pair from a WriteHashMap.
   Throws IllegalArgumentException if attempting to remove an internal key.
+  A key the file cannot hold is absent, so removing it does nothing (see
+  `conversion/db-lookup-hash`).
   Updates the internal count if fast counting is enabled."
   [^WriteHashMap whm k]
-  (let [key-hash (conversion/db-key-hash (-> whm .cursor .db) k)]
+  (when-let [key-hash (conversion/db-lookup-hash (-> whm .cursor .db) k)]
     (.remove whm key-hash))
   whm)
 
 (defn ^WriteHashMap map-empty!
-  "Empties a WriteHashMap by replacing its contents with an empty map.
+  "Empties a WriteHashMap by replacing its contents with an empty map of the same
+  kind, counted or plain, because `whm` keeps expecting that kind afterwards.
   Returns the modified WriteHashMap."
   [^WriteHashMap whm]
   (let [^WriteCursor cursor (-> whm .cursor)]
-    (.write cursor (conversion/v->slot! cursor {}))
+    (.write cursor nil)
+    (.write cursor (.slot (if (instance? WriteCountedHashMap whm)
+                            (WriteCountedHashMap. cursor)
+                            (WriteHashMap. cursor))))
     whm))
 
 (defn map-contains-key?
@@ -171,9 +177,10 @@
 
 (defn map-read-cursor
   "Gets a read cursor for the specified key in a ReadHashMap.
-  Returns the cursor if the key exists, nil otherwise."
+  Returns the cursor if the key exists, nil otherwise, which includes a key
+  the file cannot hold (see `conversion/db-lookup-hash`)."
   [^ReadHashMap rhm key]
-  (let [key-hash (conversion/db-key-hash (-> rhm .cursor .db) key)]
+  (when-let [key-hash (conversion/db-lookup-hash (-> rhm .cursor .db) key)]
     (.getCursor rhm key-hash)))
 
 ;; ============================================================================
@@ -196,24 +203,30 @@
     whs))
 
 (defn set-disj-value!
-  "Removes a value from a set"
+  "Removes a value from a set. A value the file cannot hold is absent, so
+  removing it does nothing (see `conversion/db-lookup-hash`)."
   [^WriteHashSet whs v]
-  (let [hash-code (conversion/db-key-hash (-> whs .cursor .db) v)]
-    (.remove whs hash-code)
-    whs))
+  (when-let [hash-code (conversion/db-lookup-hash (-> whs .cursor .db) v)]
+    (.remove whs hash-code))
+  whs)
 
 (defn set-contains?
-  "Returns true if `v` is in the set."
+  "Returns true if `v` is in the set. A value the file cannot hold is not (see
+  `conversion/db-lookup-hash`)."
   [rhs v]
-  (let [hash-code (conversion/db-key-hash (-> rhs .-cursor .-db) v)
-        cursor    (.getCursor rhs hash-code)]
-    (some? cursor)))
+  (let [hash-code (conversion/db-lookup-hash (-> rhs .-cursor .-db) v)]
+    (and (some? hash-code)
+         (some? (.getCursor rhs hash-code)))))
 
 (defn ^WriteHashSet set-empty!
-  "Replaces the whs value with an empty set."
+  "Replaces the whs value with an empty set of the same kind, counted or plain,
+  because `whs` keeps expecting that kind afterwards."
   [^WriteHashSet whs]
-  (let [empty-set (conversion/v->slot! (.cursor whs) #{})]
-    (.write ^WriteCursor (.cursor whs) empty-set))
+  (let [^WriteCursor cursor (.cursor whs)]
+    (.write cursor nil)
+    (.write cursor (.slot (if (instance? WriteCountedHashSet whs)
+                            (WriteCountedHashSet. cursor)
+                            (WriteHashSet. cursor)))))
   whs)
 
 ;; ============================================================================
