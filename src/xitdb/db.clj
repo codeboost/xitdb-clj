@@ -32,23 +32,22 @@
   (Hasher/stringToId "sha1"))
 
 (defn- check-hash-format!
-  "Throws IllegalArgumentException unless mode `mode` can use the key hashing of
-  file `db`. A clj1 file only opens in Clojure mode and any other file only opens
-  in compat mode, because hashing keys the wrong way loses lookups silently."
+  "Throws IllegalArgumentException unless mode `mode` matches the key hashing of
+  file `db`. A clj1 file is in Clojure mode and any other file is in compat mode.
+  A nil `mode` accepts either, since the header decides the hashing."
   [^Database db mode]
   (let [clj1? (conversion/clojure-key-hashing? db)]
     (cond
       (and (= :clojure mode) (not clj1?))
       (throw (IllegalArgumentException.
-               (str "Unsupported key hash format. Export the data using the xitdb-clj version "
-                    "that created this file, then import it into a new database. "
-                    "The original file has not been modified. "
-                    "A file written by another language can be opened with {:mode :compat}.")))
+               (str "Unsupported key hash format: this file is not in Clojure mode (clj1). "
+                    "A file written by another language opens without :mode or with "
+                    "{:mode :compat}. The original file has not been modified.")))
 
       (and (= :compat mode) clj1?)
       (throw (IllegalArgumentException.
                (str "This file uses the Clojure key hash format (clj1), which compat mode "
-                    "cannot read. Open it without {:mode :compat}. "
+                    "cannot read. Open it without :mode or with {:mode :clojure}. "
                     "The original file has not been modified."))))))
 
 (defn- new-database
@@ -76,14 +75,14 @@
   "Opens database `filename`.
   If `filename` is `:memory`, returns a memory based db.
   open-mode can be `r` or `rw`.
-  mode is `:clojure` (the default) or `:compat`, see `xit-db`. It picks the header
-  ID of a new file and is checked against the header of an existing one; the
-  hasher passed for an existing file is not used, since the engine keeps that
-  file's own ID."
+  mode is nil (the default), `:clojure` or `:compat`, see `xit-db`. It picks the
+  header ID of a new file, clj1 unless it is `:compat`. An existing file keeps its
+  own ID, since the engine ignores the hasher's ID for it, and a non-nil mode is
+  checked against that ID."
   ([filename open-mode]
-   (open-database filename open-mode :clojure))
+   (open-database filename open-mode nil))
   ([filename ^String open-mode mode]
-   (when-not (contains? #{:clojure :compat} mode)
+   (when-not (contains? #{nil :clojure :compat} mode)
      (throw (IllegalArgumentException.
               (str "Unknown mode " (pr-str mode) ", expected :clojure or :compat"))))
    (let [^Core core (if (= filename :memory)
@@ -304,29 +303,41 @@
   values read from it. Reads can run in parallel, transactions (eg. `swap!`) will
   only allow one writer at a time.
 
-  `opts` takes `:mode`, which throws IllegalArgumentException for an unknown value:
-  - `:clojure`, the default, uses the Clojure key encoding, which supports all key
-    types. A new file gets header ID clj1, and a file with any other ID is rejected.
-  - `:compat` shares files with other languages. A string key hashes as its raw
-    UTF-8 bytes; writing any other key or set member throws IllegalArgumentException,
-    reading one finds nothing and removing one does nothing. Native maps and sets
-    are written plain rather than counted, so other languages can read them with
-    their plain hash map and set types, and `count` on them walks the collection.
-    A new file gets header ID sha1, a clj1 file is rejected, and any other file is
-    opened with its ID kept.
-  A rejected file is not modified. The file's header, not `:mode`, decides how keys
-  hash (see `conversion/db-key-hash`). Old unversioned xitdb-clj files have header
-  ID 0 like Java files and cannot be told apart from them, so they must not be
-  opened in compat mode: lookups would miss and writes would create duplicates."
+  An existing file opens in the mode its header records (see `db-mode`):
+  - Clojure mode uses the Clojure key encoding, which supports all key types.
+    Files xitdb-clj creates are in this mode unless asked otherwise, with header
+    ID clj1.
+  - Compat mode shares files with other languages, and every file whose header
+    is not clj1 is in it. A string key hashes as its raw UTF-8 bytes; writing any
+    other key or set member throws IllegalArgumentException, reading one finds
+    nothing and removing one does nothing. Native maps and sets are written plain
+    rather than counted, so other languages can read them with their plain hash
+    map and set types, and `count` on them walks the collection.
+
+  `opts` takes `:mode`, `:clojure` or `:compat`, which throws
+  IllegalArgumentException for any other value. It picks the mode of a new file,
+  and a new compat file gets header ID sha1. An existing file in the other mode
+  is rejected without being modified, for callers that rely on one mode.
+
+  Files written by xitdb-clj 0.5.0 and earlier have header ID 0, like Java files,
+  but are rejected in every mode because they use an older file format, so they
+  never open in compat mode, where their lookups would miss and writes would
+  create duplicates. They must be migrated (see the README)."
   ([filename]
    (xit-db filename nil))
-  ([filename {:keys [mode] :or {mode :clojure}}]
+  ([filename {:keys [mode]}]
    (let [^Database writer (open-database filename "rw" mode)]
      (try
        (wrap-db filename writer)
        (catch Throwable t
          (close-after-failure! (.-core writer) t)
          (throw t))))))
+
+(defn db-mode
+  "Returns the mode of `xdb`, `:clojure` or `:compat` (see `xit-db`), as recorded
+  in its header."
+  [^XITDBDatabase xdb]
+  (if (conversion/clojure-key-hashing? (.-rwdb xdb)) :clojure :compat))
 
 (defn- create-compact-target [filename]
   (if (= :memory filename)

@@ -2,8 +2,10 @@
   "Compatibility mode, exercised with real files written and read through the
   xitdb-java API."
   (:require
+    [clojure.java.io :as io]
     [clojure.test :refer :all]
     [xitdb.db :as db]
+    [xitdb.replication :as replication]
     [xitdb.util.conversion :as conversion])
   (:import
     [io.github.radarroark.xitdb
@@ -44,13 +46,19 @@
 
 (deftest mode-option
   (with-temp-paths [default-path explicit-path unknown-path]
-    (testing "the default and explicit Clojure mode behave the same"
+    (testing "a new database is in Clojure mode unless asked otherwise"
       (with-open [d (db/xit-db default-path)]
         (reset! d {:a 1})
-        (is (= 1 (:a @d))))
+        (is (= 1 (:a @d)))
+        (is (= :clojure (db/db-mode d))))
       (with-open [d (db/xit-db explicit-path {:mode :clojure})]
         (reset! d {:a 1})
-        (is (= 1 (:a @d)))))
+        (is (= 1 (:a @d)))
+        (is (= :clojure (db/db-mode d))))
+      (with-open [d (db/xit-db :memory)]
+        (is (= :clojure (db/db-mode d))))
+      (with-open [d (db/xit-db :memory {:mode :compat})]
+        (is (= :compat (db/db-mode d)))))
     (testing "an unknown mode is refused before the file is created"
       (is (thrown-with-msg? IllegalArgumentException #":nope"
                             (db/xit-db unknown-path {:mode :nope})))
@@ -90,24 +98,26 @@
         (.flush core))
       (finally (.close core)))))
 
-(deftest mode-is-checked-against-the-file
+(deftest an-existing-file-opens-in-the-mode-of-its-header
   (doseq [[label id] [["id 0" 0] ["id sha1" sha1-id] ["some other id" (Hasher/stringToId "abcd")]]]
     (testing (str "foreign file, " label)
       (with-temp-paths [path]
         (java-write! path id (fn [^WriteHashMap m] (.put m "k" (Database$Bytes. "v"))))
-        (let [before (file-bytes path)]
-          (testing "is rejected in Clojure mode, without modifying it"
-            (is (thrown-with-msg? IllegalArgumentException #"key hash format.*[Ee]xport"
-                                  (db/xit-db path)))
-            (is (thrown-with-msg? IllegalArgumentException #"key hash format.*[Ee]xport"
+        (testing "opens in compat mode without :mode, keeping its header"
+          (with-open [d (db/xit-db path)]
+            (is (= :compat (db/db-mode d)))
+            (is (= "v" (get @d "k")))
+            (is (thrown? IllegalArgumentException (swap! d assoc :b 1))))
+          (is (= id (header-id path))))
+        (testing "opens with {:mode :compat}"
+          (with-open [d (db/xit-db path {:mode :compat})]
+            (is (= "v" (get @d "k")))))
+        (testing "is rejected with {:mode :clojure}, without modifying it"
+          (let [before (file-bytes path)]
+            (is (thrown-with-msg? IllegalArgumentException #"key hash format.*without :mode"
                                   (db/xit-db path {:mode :clojure})))
-            (is (thrown-with-msg? IllegalArgumentException #"\{:mode :compat\}"
-                                  (db/xit-db path)))
-            (is (Arrays/equals before (file-bytes path))))
-          (testing "opens in compat mode, keeping its header"
-            (.close (db/xit-db path {:mode :compat}))
-            (is (= id (header-id path))))))))
-  (testing "a clj1 file is rejected in compat mode, without modifying it"
+            (is (Arrays/equals before (file-bytes path))))))))
+  (testing "a clj1 file opens in Clojure mode and is rejected with {:mode :compat}"
     (with-temp-paths [path]
       (with-open [d (db/xit-db path)]
         (reset! d {"a" 1 :b 2}))
@@ -115,15 +125,19 @@
         (is (thrown-with-msg? IllegalArgumentException #"clj1"
                               (db/xit-db path {:mode :compat})))
         (is (Arrays/equals before (file-bytes path))))
-      (with-open [d (db/xit-db path)]
-        (is (= {"a" 1 :b 2} (db/materialize @d))))))
-  (testing "a compat file created by xitdb-clj is rejected in Clojure mode and reopens in compat mode"
+      (doseq [opts [nil {:mode :clojure}]]
+        (with-open [d (db/xit-db path opts)]
+          (is (= :clojure (db/db-mode d)))
+          (is (= {"a" 1 :b 2} (db/materialize @d)))))))
+  (testing "a compat file created by xitdb-clj reopens in compat mode"
     (with-temp-paths [path]
       (with-open [d (db/xit-db path {:mode :compat})]
         (reset! d {"a" 1}))
-      (is (thrown? IllegalArgumentException (db/xit-db path)))
-      (with-open [d (db/xit-db path {:mode :compat})]
-        (is (= {"a" 1} (db/materialize @d)))))))
+      (is (thrown? IllegalArgumentException (db/xit-db path {:mode :clojure})))
+      (doseq [opts [nil {:mode :compat}]]
+        (with-open [d (db/xit-db path opts)]
+          (is (= :compat (db/db-mode d)))
+          (is (= {"a" 1} (db/materialize @d))))))))
 
 (defn- rich-java-file!
   "A foreign file with every hash collection reachable by string key."
@@ -621,21 +635,28 @@
           (let [m (ReadCountedHashMap. moment)]
             (is (= 1 (.count (ReadCountedHashMap. (.getCursor m (conversion/db-key-hash (.-db ^ReadCursor moment) :m))))))
             (is (= 1 (.count (ReadCountedHashSet. (.getCursor m (conversion/db-key-hash (.-db ^ReadCursor moment) :s)))))))))))
-  (testing "the legacy fixture is still rejected in Clojure mode"
+  (testing "the legacy fixture is still rejected, although its header ID 0 would mean compat mode"
     (with-temp-paths [path]
       (Files/copy (.toPath (File. "test-resources/legacy-key-hashes.db"))
                   (.toPath (File. path))
                   ^"[Ljava.nio.file.CopyOption;" (make-array java.nio.file.CopyOption 0))
-      (is (thrown-with-msg? IllegalArgumentException #"Unsupported file format.*[Ee]xport"
-                            (db/xit-db path))))))
+      (doseq [opts [nil {:mode :clojure} {:mode :compat}]]
+        (is (thrown-with-msg? IllegalArgumentException #"Unsupported file format.*[Ee]xport"
+                              (db/xit-db path opts)))))))
 
 (deftest open-database-keeps-its-two-argument-form
-  (with-temp-paths [path]
+  (with-temp-paths [path compat-path]
     (let [^Database jdb (db/open-database path "rw")]
       (try
         (is (= clj1-id (.hashId (.-header jdb))))
         (finally (.close (.-core jdb)))))
-    (is (thrown? IllegalArgumentException (db/open-database path "rw" :compat)))))
+    (is (thrown? IllegalArgumentException (db/open-database path "rw" :compat)))
+    (testing "detects the mode of an existing file"
+      (.close (db/xit-db compat-path {:mode :compat}))
+      (let [^Database jdb (db/open-database compat-path "rw")]
+        (try
+          (is (= sha1-id (.hashId (.-header jdb))))
+          (finally (.close (.-core jdb))))))))
 
 (deftest compaction-keeps-compat-lookups-working
   (doseq [[label id] [["id 0" 0] ["id sha1" sha1-id]]]
@@ -651,8 +672,8 @@
             (is (= 8 (count @compacted)))
             (is (thrown? IllegalArgumentException (swap! compacted assoc :b 1)))))
         (is (= id (header-id target)))
-        (is (thrown? IllegalArgumentException (db/xit-db target)))
-        (with-open [d (db/xit-db target {:mode :compat})]
+        (is (thrown? IllegalArgumentException (db/xit-db target {:mode :clojure})))
+        (with-open [d (db/xit-db target)]
           (is (= "bob" (get @d "name")))
           (is (contains? (get @d "members") "é")))
         (with-java-moment target
@@ -687,3 +708,28 @@
     (with-open [d (db/xit-db path {:mode :compat})]
       (swap! d assoc "profile-copy" (get @d "profile"))
       (is (= "Paris" (get-in @d ["profile-copy" "city"]))))))
+
+(deftest a-full-copy-gives-the-replica-the-mode-of-its-source
+  (with-temp-paths [java-path clj-path replica-path]
+    (rich-java-file! java-path 0)
+    (with-open [java-source (db/xit-db java-path)
+                clj-source  (db/xit-db clj-path)
+                replica     (db/xit-db replica-path {:mode :clojure})]
+      (reset! clj-source {:k 1})
+      (reset! replica {:mine 1})
+      (let [sync! (fn [source]
+                    (with-open [in (io/input-stream source :since (replication/replica-state replica))]
+                      (replication/replicate! replica in)))]
+        (testing "a foreign source puts the replica in compat mode"
+          (is (:full-copy? (sync! java-source)))
+          (is (= :compat (db/db-mode replica)))
+          (is (= "Paris" (get-in @replica ["profile" "city"])))
+          (is (thrown? IllegalArgumentException (swap! replica assoc :x 1))))
+        (testing "a Clojure-mode source puts it back"
+          (is (:full-copy? (sync! clj-source)))
+          (is (= :clojure (db/db-mode replica)))
+          (is (= {:k 1} (db/materialize @replica))))))
+    (testing "the replica reopens in the mode it was copied in"
+      (is (thrown? IllegalArgumentException (db/xit-db replica-path {:mode :compat})))
+      (with-open [replica (db/xit-db replica-path)]
+        (is (= :clojure (db/db-mode replica)))))))
