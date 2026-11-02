@@ -60,15 +60,18 @@ For the programmer, a `xitdb` database is like a Clojure atom.
 ;; => 31
 ```
 
-Database files now record the Clojure key-hash format in their header (`clj1`).
-Older, unversioned files are rejected on open: their collection and Date key
-hashes are incompatible with the current encoding. Before upgrading, export
-the data using the version that created the file (`materialize` reads entries
-without looking them up by hash), then import it into a **new** database with
-the current version. Export each `deref-at` value in order if history must be
-preserved. Use a serializer that preserves your value types and sorted
-collections; plain EDN does not round-trip every supported type. Opening an
-incompatible file does not modify it, and compaction does not migrate hashes.
+Version 0.6.0 uses a new file format (from xitdb-java 0.46.0, which adds
+[replication](#replication)), so it can't open files written by 0.5.0 and
+earlier. Database files also record the Clojure key-hash format in their header
+(`clj1`), and files with another key-hash format are rejected too. Opening an
+incompatible file throws `IllegalArgumentException` and does not modify it.
+
+To upgrade, export the data using the version that created the file
+(`materialize` reads entries without looking them up by hash), then import it
+into a **new** database with the current version. Export each `deref-at` value
+in order if history must be preserved. Use a serializer that preserves your
+value types and sorted collections; plain EDN does not round-trip every
+supported type. Compaction does not migrate files.
 
 Records and `NaN` are rejected as map keys and set members, including anywhere
 inside collection-valued keys or members. Writes throw `IllegalArgumentException`
@@ -290,19 +293,20 @@ Note that this is not doing an expensive copy of the fruits vector. We are benef
 
 Since xitdb files are append-only, it is absurdly easy to replicate them: just copy the bytes that the destination doesn't have yet! Other databases like SQLite require complex external tools to replicate. In xitdb, once a transaction is committed, its bytes never change, except for a small header that points at the latest commit. That makes it easy to keep a copy of a database (a "replica") up to date, whether it's another file on the same machine or on another machine across a network.
 
-Databases work with `clojure.java.io`, so a sync is just an `io/copy`:
+With `xitdb.replication` loaded, databases work with `clojure.java.io`, so a sync is just an `io/copy`:
 
 ```clojure
-(require '[clojure.java.io :as io])
+(require '[clojure.java.io :as io]
+         '[xitdb.replication :as replication])
 
-(with-open [in  (io/input-stream source :since (xdb/replica-state replica))
+(with-open [in  (io/input-stream source :since (replication/replica-state replica))
             out (io/output-stream replica)]
   (io/copy in out))
 ```
 
 `replica-state` describes what the replica already has, as a map of two numbers. `io/input-stream` opens a stream of the bytes that the replica is missing, and `io/output-stream` writes them to the replica, committing them when it is closed. The output stream holds the replica's write lock until then, so close it on the thread that opened it (`with-open` does this).
 
-Since the state is plain data and the bytes are an ordinary `InputStream`, replicating across a network works the same way. For example, the source can serve updates from a Ring handler, and the replica can copy them straight from the response:
+Since the state is plain data and the bytes are an ordinary `InputStream`, replicating across a network works the same way. For example, the source can serve updates from a Ring handler, and the replica can apply them straight from the response:
 
 ```clojure
 ;; on the source (with ring.middleware.params/wrap-params)
@@ -312,17 +316,24 @@ Since the state is plain data and the bytes are an ordinary `InputStream`, repli
                                        :checksum       (parse-long (query-params "checksum"))})})
 
 ;; on the replica
-(let [{:keys [committed-size checksum]} (xdb/replica-state replica)]
-  (with-open [in  (io/input-stream (str "http://example.com/updates?size=" committed-size "&checksum=" checksum))
-              out (io/output-stream replica)]
-    (io/copy in out)))
+(let [{:keys [committed-size checksum]} (replication/replica-state replica)]
+  (with-open [in (io/input-stream (str "http://example.com/updates?size=" committed-size "&checksum=" checksum))]
+    (replication/replicate! replica in)))
 ```
+
+`replicate!` does the same `io/copy`, but if the connection drops, it throws that error. With `with-open` around both streams, you would get the exception from closing the output stream on an incomplete update instead, which hides the cause. It returns `{:full-copy? b :replica-state s}`: whether the update replaced the replica with a full copy (see below), and the replica's new state.
 
 Without `:since`, the stream contains the whole database, which is handy for copying it into a new database as a backup.
 
 A replica can start out as any new database. Each database has a random file ID, so the first sync sees that the replica isn't a copy of the source and sends the entire source file, replacing the replica. The same happens if the replica can no longer be extended, such as when the source is replaced by a compacted copy (which is a new file) or restored from an older backup.
 
-If a sync is interrupted, such as by a dropped connection, closing the output stream throws, the replica stays at its last commit, and the next sync discards whatever was partially written. The exception is a full copy: the replica is truncated before it begins, so an interrupted full copy leaves the replica unusable until the next sync succeeds. `replica-state` describes such a replica as empty, so that sync is a full copy again.
+If an incremental sync is interrupted, such as by a dropped connection, closing the output stream throws and the replica stays at its last commit.
+
+A full copy replaces the replica in place: the replica is truncated as the copy begins and the new bytes are written over it. While it runs, reads from the replica throw. Values read from the replica before it (lazy maps, vectors, cursors) hold offsets into the old file, so afterwards they read whatever the copy holds there: another value, garbage, or an error, with no way to tell. Don't use them after a full copy: `materialize` what you need to keep, or read it again after the sync. `replicate!` returns whether an update was a full copy.
+
+If a full copy is interrupted, the replica can't be read until a sync succeeds. `replica-state` describes it as empty, so the next sync sends a full copy again. If the process restarts first, the file won't open: delete it and sync again, since a replica is only a copy. Don't replicate a database into itself or into another handle on the same file, and only replicate between xitdb-clj databases (the key hash format is not checked).
+
+If a replica must stay readable during a full copy, apply the copy to a new database and switch to it: ask the source whether it can extend the replica with `can-extend?` (over a network, the source's handler can return the answer), and if not, copy the source without `:since` into a new file, then swap files or handles in your app.
 
 Treat a replica as read-only: don't `swap!` or `reset!` it. Once a replica has commits of its own, it is no longer a copy of the source, so the next sync replaces it with a full copy and those commits are lost.
 
