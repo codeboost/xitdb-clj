@@ -8,6 +8,7 @@
   (:import
     [clojure.lang PersistentTreeMap PersistentTreeSet]
     [java.nio.charset StandardCharsets]
+    [java.security MessageDigest]
     [io.github.radarroark.xitdb
      Database Database$Bytes Database$Float Database$Int Database$HashFunction Hasher
      ReadArrayList ReadCursor ReadHashMap ReadHashSet ReadLinkedArrayList ReadSortedMap ReadSortedSet
@@ -124,8 +125,8 @@
       (.hash jdb
         (reify Database$HashFunction
           (update [_ digest]
-            (.update digest (.getBytes fmt-tag "UTF-8"))
-            (.update digest (.getBytes text "UTF-8"))))))))
+            (.update ^MessageDigest digest (.getBytes ^String fmt-tag "UTF-8"))
+            (.update ^MessageDigest digest (.getBytes text "UTF-8"))))))))
 
 (defn db-lookup-hash
   "The hash for reading or removing key `v`, or nil when the file cannot hold it.
@@ -473,7 +474,7 @@
   (let [key-hash (db-key-hash (-> whm .cursor .db) key)]
     (.putCursor whm key-hash)))
 
-(defn map-write-cursor-storing-key!
+(defn ^WriteCursor map-write-cursor-storing-key!
   "Like `map-write-cursor`, but also stores `key` itself when the entry is
   new. The hash-only `putCursor` never writes the key, so without this a
   keypath write to an absent key would leave a keyless entry behind."
@@ -495,7 +496,7 @@
   (validation/validate-index-bounds i (.count wlal) "Linked array list write cursor")
   (.putCursor wlal i))
 
-(defn write-cursor-for-key
+(defn ^WriteCursor write-cursor-for-key
   "Returns a write cursor to `current-key` inside the collection at `cursor`,
   creating the entry when it is absent (for hash maps the key itself is stored
   too, see `map-write-cursor-storing-key!`).
@@ -505,7 +506,7 @@
   B-tree key, so writing a different value through a member cursor would leave
   the member filed under the wrong hash/key. Both throw IllegalArgumentException;
   membership changes go through conj/disj on the set itself."
-  [cursor current-key]
+  [^WriteCursor cursor current-key]
   (let [value-tag (some-> cursor .slot .tag)]
     (cond
       (= value-tag Tag/HASH_MAP)
@@ -544,7 +545,7 @@
       (throw (IllegalArgumentException.
                (format "Cannot get cursor to key '%s' for value with tag '%s'" current-key (xit-tag->keyword value-tag)))))))
 
-(defn keypath-cursor
+(defn ^WriteCursor keypath-cursor
   "Recursively goes to keypath and returns the write cursor"
   [^WriteCursor cursor keypath]
   (if (empty? keypath)

@@ -27,12 +27,12 @@
   "Unsupported keys are absent, including when native/Java maps compare
   themselves with a stored map. Storage failures are not encoding failures."
   [^ReadSortedMap rsm key]
-  (let [encoded (try
-                  (when (some? key) (sorted-key/encode-key key))
-                  (catch IllegalArgumentException _ nil))]
+  (let [^bytes encoded (try
+                         (when (some? key) (sorted-key/encode-key key))
+                         (catch IllegalArgumentException _ nil))]
     (and (some? encoded) (some? (.getCursor rsm encoded)))))
 
-(defn smap-write-cursor
+(defn ^WriteCursor smap-write-cursor
   "Write cursor for `key`. Creates the key if it doesn't exist, so callers that
   only want to read an existing entry must check `smap-read-cursor` first."
   [^WriteSortedMap wsm key]

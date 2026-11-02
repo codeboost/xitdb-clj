@@ -25,12 +25,12 @@
   full copy, has nothing a source could extend, so it is described as empty,
   `{:committed-size 0 :checksum 0}`, and the next sync sends a full copy."
   [^XITDBDatabase xdb]
-  (let [state (try
-                (.replicaState ^Database (.-rodb xdb))
-                (catch EOFException _ nil)
-                (catch Database$InvalidDatabaseException _ nil)
-                (catch Database$TruncatedDatabaseException _ nil)
-                (catch Database$UnexpectedTagException _ nil))]
+  (let [^ReplicaState state (try
+                              (.replicaState ^Database (.-rodb xdb))
+                              (catch EOFException _ nil)
+                              (catch Database$InvalidDatabaseException _ nil)
+                              (catch Database$TruncatedDatabaseException _ nil)
+                              (catch Database$UnexpectedTagException _ nil))]
     (if state
       {:committed-size (.committedSize state)
        :checksum       (.checksum state)}

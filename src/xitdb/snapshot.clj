@@ -15,7 +15,7 @@
   The value read from `filename` is a pointer into that file, so it is
   materialized (copied) before being written into the memory database."
   [filename keypath]
-  (with-open [db (xit-db-existing filename)]
+  (with-open [^java.io.Closeable db (xit-db-existing filename)]
     (let [memdb (xdb/xit-db :memory)]
       (reset! memdb (xdb/materialize (get-in @db keypath)))
       memdb)))
