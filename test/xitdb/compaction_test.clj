@@ -237,7 +237,7 @@
                 compacted (xdb/compact reopened target)]
       (is (= {:data "requires reading the source file"} (xdb/materialize @compacted))))))
 
-(deftest compact-refreshes-a-handle-opened-before-initialization-test
+(deftest compact-sees-commits-from-another-handle-test
   (let [source   (new-path)
         target   (new-path)
         expected {:important [1 2 3]}]
