@@ -62,9 +62,11 @@ For the programmer, a `xitdb` database is like a Clojure atom.
 
 Version 0.6.0 uses a new file format (from xitdb-java 0.46.0, which adds
 [replication](#replication)), so it can't open files written by 0.5.0 and
-earlier. Database files also record the Clojure key-hash format in their header
-(`clj1`), and files with another key-hash format are rejected too. Opening an
-incompatible file throws `IllegalArgumentException` and does not modify it.
+earlier. Database files also record their key-hash format in their header:
+`clj1` for the Clojure key hashing, while any other header opens in
+[compat mode](#compatibility-mode-sharing-files-with-other-languages). Files
+whose keys aren't hashed with SHA-1 are rejected. Opening an incompatible file
+throws `IllegalArgumentException` and does not modify it.
 
 To upgrade, export the data using the version that created the file
 (`materialize` reads entries without looking them up by hash), then import it
@@ -81,35 +83,53 @@ explicitly if map identity is what you need.
 ### Compatibility mode: sharing files with other languages
 
 The default Clojure key hashing supports every key type, but the Java and
-TypeScript libraries can't look those keys up and xitdb-clj refuses their files.
-Compat mode hashes string keys the way those libraries do, so both sides can read
-and write the same file:
+TypeScript libraries can't look those keys up. Compat mode hashes string keys the
+way those libraries do, so both sides can read and write the same file.
+
+A file's header records its mode, and an existing file opens in that mode. Files
+from other languages open in compat mode with no option:
 
 ```clojure
-(def db (xdb/xit-db "from-java.db" {:mode :compat})) ;; also works with :memory
+(def db (xdb/xit-db "from-java.db"))
+(xdb/db-mode db) ;; => :compat
 (get-in @db ["profile" "city"])
 (swap! db assoc "name" "Alice")
 ```
 
-The mode is checked against the file. Picking the wrong hashing would silently
-lose lookups and create duplicate keys, so a mismatch throws
-`IllegalArgumentException` and leaves the file unmodified:
+New databases are in Clojure mode. Create one in compat mode when another
+language will read it:
 
-| File                            | `{:mode :clojure}` (default) | `{:mode :compat}` |
-|---------------------------------|------------------------------|-------------------|
-| New or empty                    | created with header `clj1`   | created with header `sha1` |
-| Header `clj1`                   | opens                        | rejected |
-| Any other header (`0`, `sha1`…) | rejected                     | opens, header kept (also by `compact`) |
+```clojure
+(def db (xdb/xit-db "shared.db" {:mode :compat})) ;; also works with :memory
+```
+
+Passing `:mode` for an existing file also checks it against the header, for code
+that relies on one mode. A mismatch throws `IllegalArgumentException` and leaves
+the file unmodified:
+
+| File                            | no `:mode`                 | `{:mode :clojure}`         | `{:mode :compat}` |
+|---------------------------------|----------------------------|----------------------------|-------------------|
+| New or empty                    | created with header `clj1` | created with header `clj1` | created with header `sha1` |
+| Header `clj1`                   | opens in Clojure mode      | opens                      | rejected |
+| Any other header (`0`, `sha1`…) | opens in compat mode       | rejected                   | opens |
+
+`compact` keeps the header, so a compacted database stays in its mode. A full
+copy during [replication](#replication) brings the source's header, so the replica
+switches to the source's mode, even if it was opened with `:mode`.
 
 In compat mode, hash map keys and hash set members must be strings, at every
 depth. Writing anything else throws `IllegalArgumentException` and the transaction
 leaves the database unchanged; values can still be any supported type. Reading
 with a non-string key finds nothing (`(:foo m)` is `nil`), and `dissoc` or `disj`
-of one does nothing.
+of one does nothing. So if a lookup on a file from another language comes back
+`nil`, check that the key is a string, not a keyword.
 
-**Do not open an old unversioned xitdb-clj file in compat mode.** Those files have
-header `0`, the same as Java files, so they can't be told apart: lookups would miss
-and writes would create duplicates. Migrate them as described above.
+Files from other languages must use the same file format as xitdb-clj, the one
+xitdb-java has written since 0.46.0; files in an older format are rejected, like
+those written by xitdb-clj 0.5.0 and earlier. Those old xitdb-clj files have
+header `0`, the same as Java files, so without that check they would open in
+compat mode, where lookups would miss and writes would create duplicates.
+Migrate them as described above.
 
 Not supported: Java `SortedMap`s, foreign format tags on values, binary values,
 hashes other than SHA-1, a top-level hash map with no history, and read-only
@@ -374,7 +394,7 @@ If an incremental sync is interrupted, such as by a dropped connection, closing 
 
 A full copy replaces the replica in place: the replica is truncated as the copy begins and the new bytes are written over it. While it runs, reads from the replica throw. Values read from the replica before it (lazy maps, vectors, cursors) hold offsets into the old file, so afterwards they read whatever the copy holds there: another value, garbage, or an error, with no way to tell. Don't use them after a full copy: `materialize` what you need to keep, or read it again after the sync. `replicate!` returns whether an update was a full copy.
 
-If a full copy is interrupted, the replica can't be read until a sync succeeds. `replica-state` describes it as empty, so the next sync sends a full copy again. If the process restarts first, the file won't open: delete it and sync again, since a replica is only a copy. Don't replicate a database into itself or into another handle on the same file, and only replicate between xitdb-clj databases (the key hash format is not checked).
+If a full copy is interrupted, the replica can't be read until a sync succeeds. `replica-state` describes it as empty, so the next sync sends a full copy again. If the process restarts first, the file won't open: delete it and sync again, since a replica is only a copy. Don't replicate a database into itself or into another handle on the same file, and only replicate from databases that xitdb-clj can open (the key hash format is not checked). A full copy gives the replica the source's [mode](#compatibility-mode-sharing-files-with-other-languages).
 
 If a replica must stay readable during a full copy, apply the copy to a new database and switch to it: ask the source whether it can extend the replica with `can-extend?` (over a network, the source's handler can return the answer), and if not, copy the source without `:since` into a new file, then swap files or handles in your app.
 
