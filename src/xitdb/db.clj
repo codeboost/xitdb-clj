@@ -164,32 +164,6 @@
       (f))
     (f)))
 
-(defn xitdb-swap-with-lock!
-  "Performs the 'swap!' operation while locking `db.lock`.
-  Returns the new value of the database.
-  If the binding `*return-history?*` is true, returns
-  `[history-count value-before value-after]`, where the written version is
-  `(deref-at xitdb (dec history-count))`.
-  If `keypath` is not empty, the result of `f` will be written to the db at `keypath` rather
-  than db root.
-  Similarly, if `keypath` is not empty, the returned value will be the value at `keypath`."
-  [xitdb base-keypath f & args]
-  (let [^ReentrantLock lock (.-lock xitdb)]
-    (when (.isHeldByCurrentThread lock)
-      (throw (IllegalStateException. "swap! should not be called from swap! or reset!")))
-    (try
-      (.lock lock)
-      (with-file-lock (.-rwdb xitdb)
-        (fn []
-          (let [old-value (when *return-history?* (get-in (deref xitdb) base-keypath))
-                n         (apply xitdb-swap! (into [(.-rwdb xitdb) base-keypath f] args))
-                new-value (get-in (deref xitdb) base-keypath)]
-            (if *return-history?*
-              [n old-value new-value]
-              new-value))))
-      (finally
-        (.unlock lock)))))
-
 (defn- close-db-internal!
   "Closes the underlying core of `db` (the file handle for file databases,
   the in-memory buffer for memory databases)."
@@ -220,14 +194,9 @@
 
 (def ^:deprecated history-index count)
 
-(defn deref-at
-  "Returns the version of the data at the specified index."
-  [xdb index]
-  (let [history (read-history (.-rodb xdb))
-        cursor  (.getCursor history index)]
-    (xtypes/read-from-cursor cursor false)))
+(declare deref-at xitdb-swap-with-lock!)
 
-(deftype XITDBDatabase [rodb rwdb lock]
+(deftype XITDBDatabase [^Database rodb ^Database rwdb ^ReentrantLock lock]
 
   java.io.Closeable
   (close [this]
@@ -270,6 +239,39 @@
 
   (swap [this f x y args]
     (apply xitdb-swap-with-lock! (concat [this nil f x y] args))))
+
+(defn deref-at
+  "Returns the version of the data at the specified index."
+  [^XITDBDatabase xdb index]
+  (let [history (read-history (.-rodb xdb))
+        cursor  (.getCursor history index)]
+    (xtypes/read-from-cursor cursor false)))
+
+(defn xitdb-swap-with-lock!
+  "Performs the 'swap!' operation while locking `db.lock`.
+  Returns the new value of the database.
+  If the binding `*return-history?*` is true, returns
+  `[history-count value-before value-after]`, where the written version is
+  `(deref-at xitdb (dec history-count))`.
+  If `keypath` is not empty, the result of `f` will be written to the db at `keypath` rather
+  than db root.
+  Similarly, if `keypath` is not empty, the returned value will be the value at `keypath`."
+  [^XITDBDatabase xitdb base-keypath f & args]
+  (let [^ReentrantLock lock (.-lock xitdb)]
+    (when (.isHeldByCurrentThread lock)
+      (throw (IllegalStateException. "swap! should not be called from swap! or reset!")))
+    (try
+      (.lock lock)
+      (with-file-lock (.-rwdb xitdb)
+        (fn []
+          (let [old-value (when *return-history?* (get-in (deref xitdb) base-keypath))
+                n         (apply xitdb-swap! (into [(.-rwdb xitdb) base-keypath f] args))
+                new-value (get-in (deref xitdb) base-keypath)]
+            (if *return-history?*
+              [n old-value new-value]
+              new-value))))
+      (finally
+        (.unlock lock)))))
 
 (defn- wrap-db
   "Wraps writer handle `rwdb` into an XITDBDatabase, opening its reader handle.
@@ -428,7 +430,8 @@
 (defn xdb-cursor [xdb keypath]
   (cond
     (instance? XITDBCursor xdb)
-    (XITDBCursor. (.-xdb xdb) (vec (concat (.-keypath xdb) keypath)))
+    (let [^XITDBCursor xdb xdb]
+      (XITDBCursor. (.-xdb xdb) (vec (concat (.-keypath xdb) keypath))))
 
     (instance? XITDBDatabase xdb)
     (XITDBCursor. xdb keypath)

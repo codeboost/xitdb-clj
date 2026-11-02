@@ -3,7 +3,7 @@
     [xitdb.util.conversion :as conversion]
     [xitdb.util.validation :as validation])
   (:import
-    [io.github.radarroark.xitdb ReadArrayList ReadCountedHashMap ReadCountedHashSet ReadHashMap ReadHashSet ReadLinkedArrayList Tag WriteArrayList WriteCountedHashMap WriteCountedHashSet WriteCursor WriteHashMap WriteHashSet WriteLinkedArrayList]))
+    [io.github.radarroark.xitdb ReadArrayList ReadCountedHashMap ReadCursor$Iterator ReadCursor$KeyValuePairCursor ReadCountedHashSet ReadHashMap ReadHashSet ReadLinkedArrayList Tag WriteArrayList WriteCountedHashMap WriteCountedHashSet WriteCursor WriteHashMap WriteHashSet WriteLinkedArrayList]))
 
 ;; ============================================================================
 ;; Array List Operations
@@ -153,9 +153,9 @@
   key type no file can hold throws, which is suppressed here. Only encoding
   errors are suppressed; storage failures still propagate."
   [^ReadHashMap whm key]
-  (let [key-hash (try
-                   (conversion/db-lookup-hash (-> whm .cursor .db) key)
-                   (catch IllegalArgumentException _ nil))]
+  (let [^bytes key-hash (try
+                          (conversion/db-lookup-hash (-> whm .cursor .db) key)
+                          (catch IllegalArgumentException _ nil))]
     (and (some? key-hash) (some? (.getKeyCursor whm key-hash)))))
 
 (defn map-item-count-iterated
@@ -215,7 +215,7 @@
 (defn set-contains?
   "Returns true if `v` is in the set. A value the file cannot hold is not (see
   `conversion/db-lookup-hash`)."
-  [rhs v]
+  [^ReadHashSet rhs v]
   (let [hash-code (conversion/db-lookup-hash (-> rhs .-cursor .-db) v)]
     (and (some? hash-code)
          (some? (.getCursor rhs hash-code)))))
@@ -238,13 +238,13 @@
 (defn map-seq
   "Return a lazy seq of key-value MapEntry pairs, or nil if empty."
   [^ReadHashMap rhm read-from-cursor]
-  (let [it (.iterator rhm)]
+  (let [^ReadCursor$Iterator it (.iterator rhm)]
     (when (.hasNext it)
       (letfn [(step []
                 (lazy-seq
                   (when (.hasNext it)
                     (let [cursor (.next it)
-                          kv     (.readKeyValuePair cursor)
+                          ^ReadCursor$KeyValuePairCursor kv (.readKeyValuePair cursor)
                           k      (read-from-cursor (.-keyCursor kv))]
                       (let [v (read-from-cursor (.-valueCursor kv))]
                         (cons (clojure.lang.MapEntry. k v) (step)))))))]
@@ -252,14 +252,14 @@
 
 (defn set-seq
   "Return a lazy seq values from the set, or nil if empty."
-  [rhm read-from-cursor]
-  (let [it (.iterator rhm)]
+  [^ReadHashSet rhm read-from-cursor]
+  (let [^ReadCursor$Iterator it (.iterator rhm)]
     (when (.hasNext it)
       (letfn [(step []
                 (lazy-seq
                   (when (.hasNext it)
                     (let [cursor (.next it)
-                          kv     (.readKeyValuePair cursor)
+                          ^ReadCursor$KeyValuePairCursor kv (.readKeyValuePair cursor)
                           v      (read-from-cursor (.-keyCursor kv))]
                       (cons v (step))))))]
         (step)))))
