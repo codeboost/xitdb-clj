@@ -148,11 +148,13 @@
 
 (defn map-contains-key?
   "Checks membership, treating unsupported keys as absent. Native and Java
-  map equality call containsKey with keys the database cannot store. Only
-  encoding errors are suppressed; storage failures still propagate."
+  map equality call containsKey with keys the database cannot store: a key the
+  file cannot hold has no lookup hash (see `conversion/db-lookup-hash`), and a
+  key type no file can hold throws, which is suppressed here. Only encoding
+  errors are suppressed; storage failures still propagate."
   [^ReadHashMap whm key]
   (let [key-hash (try
-                   (conversion/db-key-hash (-> whm .cursor .db) key)
+                   (conversion/db-lookup-hash (-> whm .cursor .db) key)
                    (catch IllegalArgumentException _ nil))]
     (and (some? key-hash) (some? (.getKeyCursor whm key-hash)))))
 
