@@ -284,6 +284,30 @@
     (compare [_ a b]
       (java.util.Arrays/compareUnsigned (encode-key a) (encode-key b)))))
 
+(defn- compat-sort-bytes
+  "UTF-8 bytes of string `k`, or nil for any other key."
+  ^bytes [k]
+  (when (string? k)
+    (.getBytes ^String k StandardCharsets/UTF_8)))
+
+(def compat-key-comparator
+  "The ordering of sorted keys in a compat file, where only strings are stored
+  (as raw UTF-8). Two strings compare by `Arrays.compareUnsigned` over their
+  UTF-8 bytes, the engine's on-disk order and the same order `key-comparator`
+  gives strings. A non-string key is never present and sorts before every
+  string; two non-strings keep the order `key-comparator` gives them, so a
+  materialized collection whose keys are transformed in memory (say to
+  keywords) still holds every entry."
+  (reify java.util.Comparator
+    (compare [_ a b]
+      (let [ba (compat-sort-bytes a)
+            bb (compat-sort-bytes b)]
+        (cond
+          (and ba bb) (java.util.Arrays/compareUnsigned ba bb)
+          ba          1
+          bb          -1
+          :else       (.compare ^java.util.Comparator key-comparator a b))))))
+
 (defn decode-key
   "Decodes a byte array produced by `encode-key` back to the Clojure key."
   [^bytes ba]

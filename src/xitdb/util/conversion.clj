@@ -137,6 +137,50 @@
   (when (or (string? v) (clojure-key-hashing? jdb))
     (db-key-hash jdb v)))
 
+(defn db-sorted-key-encode
+  "Returns the bytes sorted-map key or sorted-set member `v` is stored under.
+
+  A file that is not clj1 (see `clojure-key-hashing?`) stores a string as its raw
+  UTF-8 bytes, as the Java library's `WriteSortedMap.put(String)` does, and throws
+  IllegalArgumentException for everything else. Raw and tagged strings sort the
+  same way, since the codec's string tag is one constant leading byte.
+
+  A clj1 file uses the order-preserving codec of `sorted-key/encode-key`."
+  ^bytes [^Database jdb v]
+  (if (clojure-key-hashing? jdb)
+    (sorted-key/encode-key v)
+    (if (string? v)
+      (.getBytes ^String v "UTF-8")
+      (throw (IllegalArgumentException.
+               (str "Compat mode only supports string sorted map keys and sorted set members, got: "
+                    (pr-str (type v))))))))
+
+(defn db-sorted-key-lookup
+  "The bytes for reading or removing sorted key `v`, or nil when the file cannot
+  hold it. Only a non-string key in a compat file gives nil, so those lookups
+  find nothing and those removals do nothing, as with `db-lookup-hash`. In a clj1
+  file this is exactly `db-sorted-key-encode`, including its exceptions."
+  ^bytes [^Database jdb v]
+  (when (or (string? v) (clojure-key-hashing? jdb))
+    (db-sorted-key-encode jdb v)))
+
+(defn db-sorted-comparator
+  "The comparator matching the on-disk order of sorted keys in `jdb`:
+  `sorted-key/key-comparator` in a clj1 file, `sorted-key/compat-key-comparator`
+  otherwise, under which a non-string key sorts before every string."
+  ^java.util.Comparator [^Database jdb]
+  (if (clojure-key-hashing? jdb)
+    sorted-key/key-comparator
+    sorted-key/compat-key-comparator))
+
+(defn db-sorted-key-decode
+  "Turns stored sorted key bytes back into the key: a UTF-8 string in a compat
+  file, `sorted-key/decode-key` in a clj1 file."
+  [^Database jdb ^bytes ba]
+  (if (clojure-key-hashing? jdb)
+    (sorted-key/decode-key ba)
+    (String. ba "UTF-8")))
+
 (defn ^Slot primitive-for
   "Converts a Clojure primitive value to its corresponding XitDB representation.
   Handles strings, keywords, integers, booleans, and floats.
@@ -187,13 +231,15 @@
 (defn default-sorted-comparator?
   "True if `coll` (a PersistentTreeMap or PersistentTreeSet) is ordered in a way
   the engine can honour with its fixed unsigned byte ordering: either Clojure's
-  natural ordering (no custom comparator) or `sorted-key/key-comparator`, which
-  *is* that byte ordering and is what `materialize` stamps onto the collections
-  it rebuilds. Any other custom comparator is rejected."
+  natural ordering (no custom comparator), `sorted-key/key-comparator` or
+  `sorted-key/compat-key-comparator`, which *are* that byte ordering and are what
+  `materialize` stamps onto the collections it rebuilds (see
+  `db-sorted-comparator`). Any other custom comparator is rejected."
   [coll]
   (let [cmp (.comparator ^clojure.lang.Sorted coll)]
     (or (identical? clojure.lang.RT/DEFAULT_COMPARATOR cmp)
-        (identical? sorted-key/key-comparator cmp))))
+        (identical? sorted-key/key-comparator cmp)
+        (identical? sorted-key/compat-key-comparator cmp))))
 
 (defn- ^Database slotted-database
   "The engine handle a Slotted value was read through, or nil when unknown."
@@ -394,23 +440,26 @@
 
 (defn ^WriteCursor sorted-map->WriteSortedMapCursor!
   "Writes a Clojure sorted map `m` to a XitDB WriteSortedMap.
-  Keys are encoded with the order-preserving codec; values are written
-  recursively via `v->slot!`. Returns the cursor of the created WriteSortedMap."
+  Keys are encoded for the file's mode (see `db-sorted-key-encode`); values are
+  written recursively via `v->slot!`. Returns the cursor of the created
+  WriteSortedMap."
   [^WriteCursor cursor m]
-  (let [wsm (WriteSortedMap. cursor)]
+  (let [wsm (WriteSortedMap. cursor)
+        db  (.-db cursor)]
     (doseq [[k v] m]
-      (let [value-cursor (.putCursor wsm (sorted-key/encode-key k))]
+      (let [value-cursor (.putCursor wsm (db-sorted-key-encode db k))]
         (.write value-cursor (v->slot! value-cursor v))))
     (.-cursor wsm)))
 
 (defn ^WriteCursor sorted-set->WriteSortedSetCursor!
   "Writes a Clojure sorted set `s` to a XitDB WriteSortedSet.
-  Members are encoded with the order-preserving codec. Returns the cursor of the
-  created WriteSortedSet."
+  Members are encoded for the file's mode (see `db-sorted-key-encode`). Returns
+  the cursor of the created WriteSortedSet."
   [^WriteCursor cursor s]
-  (let [wss (WriteSortedSet. cursor)]
+  (let [wss (WriteSortedSet. cursor)
+        db  (.-db cursor)]
     (doseq [member s]
-      (.put wss (sorted-key/encode-key member)))
+      (.put wss (db-sorted-key-encode db member)))
     (.-cursor wss)))
 
 (defn ^WriteCursor set->WriteCursor!
@@ -515,11 +564,8 @@
       (= value-tag Tag/COUNTED_HASH_MAP)
       (map-write-cursor-storing-key! (WriteCountedHashMap. cursor) current-key)
 
-      ;; Sorted maps store the real key bytes (order-preserving codec), so a
-      ;; keypath write resolves a value cursor by the encoded key, mirroring the
-      ;; read-side dispatch in `read-from-cursor`.
       (= value-tag Tag/SORTED_MAP)
-      (.putCursor (WriteSortedMap. cursor) (sorted-key/encode-key current-key))
+      (.putCursor (WriteSortedMap. cursor) (db-sorted-key-encode (.-db cursor) current-key))
 
       (contains? #{Tag/HASH_SET Tag/COUNTED_HASH_SET} value-tag)
       (throw (IllegalArgumentException.

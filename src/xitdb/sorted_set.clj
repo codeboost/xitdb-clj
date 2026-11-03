@@ -9,7 +9,6 @@
   (:require
     [xitdb.common :as common]
     [xitdb.util.collection :as collection]
-    [xitdb.util.sorted-key :as sorted-key]
     [xitdb.util.sorted-operations :as sorted-ops])
   (:import
     [io.github.radarroark.xitdb
@@ -43,7 +42,7 @@
     (. clojure.lang.RT (conj (common/-materialize-shallow this) o)))
 
   (empty [this]
-    (sorted-set-by sorted-key/key-comparator))
+    (sorted-set-by (sorted-ops/sset-comparator rss)))
 
   (count [_]
     (sorted-ops/sset-item-count rss))
@@ -95,7 +94,7 @@
 
   clojure.lang.Sorted
   (comparator [_]
-    sorted-key/key-comparator)
+    (sorted-ops/sset-comparator rss))
 
   (entryKey [_ entry]
     entry)
@@ -161,11 +160,11 @@
 
   common/IMaterialize
   (-materialize [this]
-    (into (sorted-set-by sorted-key/key-comparator) (map common/materialize (seq this))))
+    (into (sorted-set-by (sorted-ops/sset-comparator rss)) (map common/materialize (seq this))))
 
   common/IMaterializeShallow
   (-materialize-shallow [this]
-    (into (sorted-set-by sorted-key/key-comparator) (seq this)))
+    (into (sorted-set-by (sorted-ops/sset-comparator rss)) (seq this)))
 
   Object
   (equals [this other]
@@ -175,11 +174,11 @@
     (collection/set-hash this))
 
   (toString [this]
-    (str (into (sorted-set-by sorted-key/key-comparator) this))))
+    (str (into (sorted-set-by (sorted-ops/sset-comparator rss)) this))))
 
 (defmethod print-method XITDBSortedSet [o ^java.io.Writer w]
   (.write w "#XITDBSortedSet")
-  (print-method (into (sorted-set-by sorted-key/key-comparator) o) w))
+  (print-method (into (sorted-set-by (.comparator ^clojure.lang.Sorted o)) o) w))
 
 ;---------------------------------------------------
 
@@ -262,7 +261,7 @@
   ;; subclass, so the rank/index-based ops apply directly to `wss`.
   clojure.lang.Sorted
   (comparator [_]
-    sorted-key/key-comparator)
+    (sorted-ops/sset-comparator wss))
 
   (entryKey [_ entry]
     entry)
@@ -320,7 +319,7 @@
 
 (defmethod print-method XITDBWriteSortedSet [o ^java.io.Writer w]
   (.write w "#XITDBWriteSortedSet")
-  (print-method (into (sorted-set-by sorted-key/key-comparator) (seq o)) w))
+  (print-method (into (sorted-set-by (.comparator ^clojure.lang.Sorted o)) (seq o)) w))
 
 ;; Constructor functions
 (defn xwrite-sorted-set [^WriteCursor write-cursor]

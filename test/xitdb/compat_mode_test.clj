@@ -4,16 +4,18 @@
   (:require
     [clojure.java.io :as io]
     [clojure.test :refer :all]
+    [clojure.walk :as walk]
     [xitdb.db :as db]
     [xitdb.replication :as replication]
+    [xitdb.sorted :as xsorted]
     [xitdb.util.conversion :as conversion])
   (:import
     [io.github.radarroark.xitdb
      CoreBufferedFile Database Database$Bytes Database$ContextFunction Database$Uint
      Database$UnexpectedTagException Hasher
      RandomAccessBufferedFile ReadArrayList ReadCountedHashMap ReadCountedHashSet ReadCursor
-     ReadHashMap ReadHashSet ReadLinkedArrayList WriteArrayList
-     WriteCountedHashMap WriteCountedHashSet WriteHashMap WriteHashSet]
+     ReadHashMap ReadHashSet ReadLinkedArrayList ReadSortedMap ReadSortedSet WriteArrayList
+     WriteCountedHashMap WriteCountedHashSet WriteHashMap WriteHashSet WriteSortedMap WriteSortedSet]
     [java.io File]
     [java.nio.file Files]
     [java.security MessageDigest]
@@ -349,11 +351,11 @@
                  "list"   '(1 :a)
                  "map"    {"nested" :v}
                  "set"    #{"s"}
-                 "sorted" (sorted-map :k 1)}]
+                 "sorted" (sorted-map "k" :v)}]
       (reset! d value)
       (is (= value (db/materialize @d)))
       (is (= :kw (get @d "kw")))
-      (is (= 1 (get-in @d ["sorted" :k])))
+      (is (= :v (get-in @d ["sorted" "k"])))
       (is (= {"a" 2} (db/materialize (swap! d (constantly {"a" 2}))))))))
 
 (defn- with-java-moment
@@ -733,3 +735,199 @@
       (is (thrown? IllegalArgumentException (db/xit-db replica-path {:mode :compat})))
       (with-open [replica (db/xit-db replica-path)]
         (is (= :clojure (db/db-mode replica)))))))
+
+(defn- sorted-java-file!
+  "A foreign file with a sorted map under \"scores\" and a sorted set under
+  \"names\", both written with Java's `put(String ...)`."
+  [path]
+  (java-write! path 0
+    (fn [^WriteHashMap m]
+      (let [scores (WriteSortedMap. (.putCursor m "scores"))]
+        (.put scores "carol" (Database$Uint. 3))
+        (.put scores "alice" (Database$Uint. 1))
+        (.put scores "bob" (Database$Uint. 2)))
+      (let [names (WriteSortedSet. (.putCursor m "names"))]
+        (.put names "zoe")
+        (.put names "adam")
+        (.put names "mia")))))
+
+(deftest reads-java-sorted-collections
+  (with-temp-paths [path]
+    (sorted-java-file! path)
+    (doseq [opts [nil {:mode :compat}]]
+      (testing (pr-str opts)
+        (with-open [d (db/xit-db path opts)]
+          (let [scores (get @d "scores")
+                names  (get @d "names")]
+            (is (= 2 (get scores "bob")))
+            (is (contains? scores "alice"))
+            (is (not (contains? scores "dave")))
+            (is (= ["alice" "bob" "carol"] (keys scores)))
+            (is (= [["bob" 2] ["carol" 3]] (subseq scores >= "b")))
+            (is (= [["bob" 2] ["alice" 1]] (rsubseq scores < "c")))
+            (is (= 1 (xsorted/rank scores "bob")))
+            (is (= 3 (count scores)))
+            (is (= {"alice" 1 "bob" 2 "carol" 3} (db/materialize scores)))
+            (is (= ["adam" "mia" "zoe"] (seq names)))
+            (is (contains? names "mia"))
+            (is (= ["mia" "zoe"] (subseq names > "b")))
+            (is (= 2 (xsorted/rank names "zoe")))
+            (is (= 3 (count names)))
+            (is (= #{"adam" "mia" "zoe"} (db/materialize names)))
+            (is (= 2 (in-swap d #(get-in % ["scores" "bob"]))))
+            (is (= ["adam" "mia" "zoe"] (in-swap d #(vec (get % "names")))))))))))
+
+(defn- java-sorted-keys
+  "The raw stored key bytes of every entry of the sorted map or set at `cursor`,
+  as UTF-8 text, in Java's iteration order."
+  [entries]
+  (vec (for [^ReadCursor cursor (iterator-seq (.iterator ^Iterable entries))]
+         (java-text (.-keyCursor (.readKeyValuePair cursor))))))
+
+(deftest java-reads-sorted-collections-compat-mode-writes
+  (with-temp-paths [path]
+    (with-open [d (db/xit-db path {:mode :compat})]
+      (reset! d {"scores" (sorted-map "b" 1 "a" 2 "" 3 "é→😀" 4)
+                 "names"  (sorted-set "b" "a" "" "é→😀")}))
+    (with-java-moment path
+      (fn [moment]
+        (let [m      (ReadHashMap. moment)
+              scores (ReadSortedMap. (.getCursor m "scores"))
+              names  (ReadSortedSet. (.getCursor m "names"))]
+          (is (= 2 (.readInt (.getCursor scores "a"))))
+          (is (= 1 (.readInt (.getCursor scores "b"))))
+          (is (= 3 (.readInt (.getCursor scores ""))))
+          (is (= 4 (.readInt (.getCursor scores "é→😀"))))
+          (is (nil? (.getCursor scores "c")))
+          (testing "keys are stored as their raw UTF-8 bytes, in byte order"
+            (is (= ["" "a" "b" "é→😀"] (java-sorted-keys scores)))
+            (is (Arrays/equals (.getBytes "é→😀" "UTF-8")
+                               ^bytes (.readBytes (.-keyCursor (.getKeyValuePair scores "é→😀")) nil))))
+          (is (.contains names "a"))
+          (is (.contains names ""))
+          (is (.contains names "é→😀"))
+          (is (not (.contains names "c")))
+          (is (= ["" "a" "b" "é→😀"] (java-sorted-keys names))))))))
+
+(def ^:private rejected-sorted-writes
+  "Each writes at least one non-string sorted map key or sorted set member."
+  {"reset! sorted map"            #(reset! % {"m" (sorted-map :a 1)})
+   "reset! sorted set"            #(reset! % {"s" (sorted-set 1)})
+   "reset! one bad key of many"   #(reset! % {"m" (sorted-map "a" 1 "b" 2)
+                                              "s" (sorted-set "a" "b")
+                                              "x" (sorted-map 1 1)})
+   "swap! assoc"                  #(swap! % update "scores" assoc :dave 4)
+   "swap! assoc nil"              #(swap! % update "scores" assoc nil 4)
+   "swap! assoc-in"               #(swap! % assoc-in ["scores" 7] 4)
+   "swap! conj"                   #(swap! % update "names" conj :x)
+   "swap! into"                   #(swap! % update "names" into ["ok" 1])
+   "swap! nested sorted value"    #(swap! % update "scores" assoc "dave" (sorted-set :x))
+   "cursor at a bad key"          #(reset! (db/xdb-cursor % ["scores" :dave]) 4)})
+
+(deftest non-string-sorted-keys-in-compat-mode
+  (with-temp-paths [path]
+    (sorted-java-file! path)
+    (testing "writing one throws and leaves the file unchanged"
+      (doseq [[label write!] rejected-sorted-writes]
+        (testing label
+          (let [before (file-bytes path)]
+            (with-open [d (db/xit-db path)]
+              (is (thrown-with-msg? IllegalArgumentException #"(?i)string" (write! d))))
+            (is (Arrays/equals before (file-bytes path)))))))
+    (testing "reading or removing one finds nothing and does nothing"
+      (with-open [d (db/xit-db path)]
+        (let [before (db/materialize @d)]
+          (doseq [[label view] [["through @d" (fn [f] (f @d))]
+                                ["inside swap!" (fn [f] (in-swap d f))]]
+                  k            non-string-keys]
+            (testing (str label ", key " (pr-str k))
+              (view
+                (fn [m]
+                  (let [scores (get m "scores")
+                        names  (get m "names")]
+                    (is (nil? (get scores k)))
+                    (is (= ::not-found (get scores k ::not-found)))
+                    (is (not (contains? scores k)))
+                    (is (nil? (find scores k)))
+                    (is (nil? (rsubseq scores <= k)))
+                    (is (zero? (xsorted/rank scores k)))
+                    (is (not (contains? names k)))
+                    (is (nil? (get names k)))
+                    (is (nil? (rsubseq names < k)))
+                    (is (zero? (xsorted/rank names k))))))))
+          (doseq [k non-string-keys]
+            (testing (str "removing " (pr-str k))
+              (is (= before (db/materialize (swap! d update "scores" dissoc k))))
+              (is (= before (db/materialize (swap! d update "names" disj k)))))))))))
+
+(deftest editing-java-sorted-collections-in-compat-mode
+  (with-temp-paths [path]
+    (sorted-java-file! path)
+    (with-open [d (db/xit-db path)]
+      (swap! d update "scores" assoc "dave" 4)
+      (swap! d update "scores" dissoc "alice")
+      (swap! d assoc-in ["scores" "erin"] {"level" 5})
+      (swap! d assoc-in ["scores" "erin" "level"] 6)
+      (swap! d update-in ["scores" "bob"] inc)
+      (swap! d update "names" conj "bea")
+      (swap! d update "names" disj "zoe")
+      (is (= {"bob" 3 "carol" 3 "dave" 4 "erin" {"level" 6}}
+             (db/materialize (get @d "scores"))))
+      (is (= ["adam" "bea" "mia"] (seq (get @d "names"))))
+      (testing "a materialized sorted collection can be written back"
+        (let [scores (db/materialize (get @d "scores"))
+              names  (db/materialize (get @d "names"))]
+          (swap! d assoc "scores-copy" scores "names-copy" names)
+          (is (= scores (db/materialize (get @d "scores-copy"))))
+          (is (= names (db/materialize (get @d "names-copy")))))))
+    (with-java-moment path
+      (fn [moment]
+        (let [m      (ReadHashMap. moment)
+              scores (ReadSortedMap. (.getCursor m "scores"))
+              names  (ReadSortedSet. (.getCursor m "names"))]
+          (is (= ["bob" "carol" "dave" "erin"] (java-sorted-keys scores)))
+          (is (= 3 (.readInt (.getCursor scores "bob"))))
+          (is (= 4 (.readInt (.getCursor scores "dave"))))
+          (is (= 6 (.readInt (.getCursor (ReadHashMap. (.getCursor scores "erin")) "level"))))
+          (is (= ["adam" "bea" "mia"] (java-sorted-keys names)))
+          (is (= ["bob" "carol" "dave" "erin"]
+                 (java-sorted-keys (ReadSortedMap. (.getCursor m "scores-copy")))))
+          (is (= ["adam" "bea" "mia"]
+                 (java-sorted-keys (ReadSortedSet. (.getCursor m "names-copy"))))))))))
+
+(deftest non-string-range-bounds-sort-before-every-string
+  (with-temp-paths [path]
+    (sorted-java-file! path)
+    (with-open [d (db/xit-db path)]
+      (doseq [[label view] [["through @d" (fn [f] (f @d))]
+                            ["inside swap!" (fn [f] (in-swap d f))]
+                            ["materialized" (fn [f] (f (db/materialize @d)))]]
+              k            [:k 0 nil]]
+        (testing (str label ", bound " (pr-str k))
+          (view
+            (fn [m]
+              (doseq [[coll all] [[(get m "scores") [["alice" 1] ["bob" 2] ["carol" 3]]]
+                                  [(get m "names") ["adam" "mia" "zoe"]]]]
+                (is (= all (subseq coll > k)))
+                (is (= all (subseq coll >= k)))
+                (is (empty? (subseq coll < k)))
+                (is (empty? (subseq coll <= k)))
+                (is (empty? (rsubseq coll < k)))
+                (is (empty? (rsubseq coll <= k)))
+                (is (= (reverse all) (rsubseq coll > k)))
+                (is (= (reverse all) (rsubseq coll >= k)))
+                (is (= all (subseq coll > k <= "zzz")))
+                (is (= (take 2 all) (subseq coll >= k < (if (map? coll) "c" "n")))))))))
+      (testing "rank, and the two-bound form with the non-string bound second"
+        (is (zero? (xsorted/rank (get @d "scores") :k)))
+        (is (empty? (subseq (get @d "scores") >= "a" < :k)))
+        (is (empty? (rsubseq (get @d "names") > "a" <= 7)))))))
+
+(deftest materialized-compat-sorted-collections-keep-distinct-non-string-keys
+  (with-open [d (db/xit-db :memory {:mode :compat})]
+    (reset! d {"m" (sorted-map "a" 1 "b" 2) "s" (sorted-set "a" "b")})
+    (let [m (db/materialize (get @d "m"))
+          s (db/materialize (get @d "s"))]
+      (is (= {:a 1 :b 2} (walk/postwalk #(if (string? %) (keyword %) %) m)))
+      (is (= #{:a :b} (into (empty s) (map keyword) s)))
+      (is (= [:a :b "x"] (keys (into (empty m) [[:b 1] ["x" 2] [:a 3]])))))))

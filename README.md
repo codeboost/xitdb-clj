@@ -124,6 +124,32 @@ with a non-string key finds nothing (`(:foo m)` is `nil`), and `dissoc` or `disj
 of one does nothing. So if a lookup on a file from another language comes back
 `nil`, check that the key is a string, not a keyword.
 
+The same rule holds for sorted map keys and sorted set members: they must be
+strings and are stored as their raw UTF-8 bytes, as Java's `WriteSortedMap.put(String, …)`
+and `WriteSortedSet.put(String)` store them. Lookups and `contains?` with a
+non-string key find nothing, and `dissoc` or `disj` of one does nothing. A
+non-string key is never present and sorts before every string, so
+`(subseq m > :k)` is the whole map, `(rsubseq m < :k)` is empty, and `rank` is 0.
+A sorted map shared with Java:
+
+```java
+// Java
+var scores = new WriteSortedMap(moment.putCursor("scores"));
+scores.put("alice", new Database.Uint(1));
+scores.put("bob", new Database.Uint(2));
+```
+
+```clojure
+;; Clojure
+(get-in @db ["scores" "bob"])            ;; => 2
+(subseq (get @db "scores") >= "b")       ;; => (["bob" 2])
+(swap! db update "scores" assoc "carol" 3)
+```
+
+Compat files written by xitdb-clj 0.7.0 and 0.7.1 store sorted map keys and
+sorted set members with a leading type-tag byte (a space for strings), which this
+version reads as part of the key. Those sorted collections must be rewritten.
+
 Files from other languages must use the same file format as xitdb-clj, the one
 xitdb-java has written since 0.46.0; files in an older format are rejected, like
 those written by xitdb-clj 0.5.0 and earlier. Those old xitdb-clj files have
@@ -131,7 +157,7 @@ header `0`, the same as Java files, so without that check they would open in
 compat mode, where lookups would miss and writes would create duplicates.
 Migrate them as described above.
 
-Not supported: Java `SortedMap`s, foreign format tags on values, binary values,
+Not supported: foreign format tags on values, binary values,
 hashes other than SHA-1, a top-level hash map with no history, and read-only
 opening.
 

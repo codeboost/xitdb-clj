@@ -11,7 +11,6 @@
   (:require
     [xitdb.common :as common]
     [xitdb.util.collection :as collection]
-    [xitdb.util.sorted-key :as sorted-key]
     [xitdb.util.sorted-operations :as sorted-ops])
   (:import
     [io.github.radarroark.xitdb
@@ -65,7 +64,7 @@
     (. clojure.lang.RT (conj (common/-materialize-shallow this) o)))
 
   (empty [this]
-    (sorted-map-by sorted-key/key-comparator))
+    (sorted-map-by (sorted-ops/smap-comparator rsm)))
 
   (equiv [this other]
     (collection/map-equiv? this other))
@@ -116,7 +115,7 @@
 
   clojure.lang.Sorted
   (comparator [_]
-    sorted-key/key-comparator)
+    (sorted-ops/smap-comparator rsm))
 
   (entryKey [_ entry]
     (key entry))
@@ -179,12 +178,12 @@
   common/IMaterialize
   (-materialize [this]
     (reduce (fn [m [k v]]
-              (assoc m (common/materialize k) (common/materialize v))) (sorted-map-by sorted-key/key-comparator) (seq this)))
+              (assoc m (common/materialize k) (common/materialize v))) (sorted-map-by (sorted-ops/smap-comparator rsm)) (seq this)))
 
   common/IMaterializeShallow
   (-materialize-shallow [this]
     (reduce (fn [m [k v]]
-              (assoc m k v)) (sorted-map-by sorted-key/key-comparator) (seq this)))
+              (assoc m k v)) (sorted-map-by (sorted-ops/smap-comparator rsm)) (seq this)))
 
   Object
   (equals [this other]
@@ -194,11 +193,11 @@
     (collection/map-hash this))
 
   (toString [this]
-    (str (into (sorted-map-by sorted-key/key-comparator) this))))
+    (str (into (sorted-map-by (sorted-ops/smap-comparator rsm)) this))))
 
 (defmethod print-method XITDBSortedMap [o ^java.io.Writer w]
   (.write w "#XITDBSortedMap")
-  (print-method (into (sorted-map-by sorted-key/key-comparator) o) w))
+  (print-method (into (sorted-map-by (.comparator ^clojure.lang.Sorted o)) o) w))
 
 ;---------------------------------------------------
 
@@ -313,7 +312,7 @@
   ;; subclass, so the rank/index-based ops apply directly to `wsm`.
   clojure.lang.Sorted
   (comparator [_]
-    sorted-key/key-comparator)
+    (sorted-ops/smap-comparator wsm))
 
   (entryKey [_ entry]
     (key entry))
@@ -367,7 +366,7 @@
 
 (defmethod print-method XITDBWriteSortedMap [o ^java.io.Writer w]
   (.write w "#XITDBWriteSortedMap")
-  (print-method (into (sorted-map-by sorted-key/key-comparator) (seq o)) w))
+  (print-method (into (sorted-map-by (.comparator ^clojure.lang.Sorted o)) (seq o)) w))
 
 (defn xwrite-sorted-map [^WriteCursor write-cursor]
   (->XITDBWriteSortedMap (WriteSortedMap. write-cursor)))
