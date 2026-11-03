@@ -1,34 +1,65 @@
 (ns xitdb.util.sorted-operations
   "Bridges the XITDBSorted* wrapper types to the Java Read/WriteSortedMap.
-  Keys are encoded/decoded through `xitdb.util.sorted-key` (order-preserving,
-  reversible) rather than hashed, so the real key is recoverable on read."
+  Keys are encoded/decoded for the file's mode (`conversion/db-sorted-key-encode`
+  and friends) rather than hashed, so the real key is recoverable on read."
   (:require
     [xitdb.util.conversion :as conversion]
     [xitdb.util.sorted-key :as sorted-key])
   (:import
-    [io.github.radarroark.xitdb ReadCursor ReadCursor$KeyValuePairCursor WriteCursor ReadSortedMap WriteSortedMap ReadSortedSet WriteSortedSet]))
+    [io.github.radarroark.xitdb Database ReadCursor ReadCursor$KeyValuePairCursor WriteCursor ReadSortedMap WriteSortedMap ReadSortedSet WriteSortedSet]))
 
 (defn smap-item-count
   "O(1) entry count, delegating to the rank-augmented B-tree."
   [^ReadSortedMap rsm]
   (.count rsm))
 
-(defn- decode-key-cursor [^ReadCursor key-cursor]
-  (sorted-key/decode-key (.readBytes key-cursor nil)))
+(defn- decode-key-cursor
+  "The key stored at `key-cursor`, decoded for the mode of its database."
+  [^ReadCursor key-cursor]
+  (conversion/db-sorted-key-decode (.-db key-cursor) (.readBytes key-cursor nil)))
+
+(defn- ^Database smap-db [^ReadSortedMap rsm]
+  (.-db (.-cursor rsm)))
+
+(defn- ^Database sset-db [^ReadSortedSet rss]
+  (.-db (.-cursor rss)))
+
+(defn- smap-lookup-key
+  "Bytes to look `key` up by, or nil when it can never be present: nil itself,
+  and non-string keys in a compat file (see `conversion/db-sorted-key-lookup`)."
+  ^bytes [^ReadSortedMap rsm key]
+  (when (some? key)
+    (conversion/db-sorted-key-lookup (smap-db rsm) key)))
+
+(defn- sset-lookup-member
+  "Like `smap-lookup-key`, for a sorted set member."
+  ^bytes [^ReadSortedSet rss member]
+  (when (some? member)
+    (conversion/db-sorted-key-lookup (sset-db rss) member)))
+
+(defn smap-comparator
+  "The comparator for keys of `rsm`, matching its file's mode."
+  ^java.util.Comparator [^ReadSortedMap rsm]
+  (conversion/db-sorted-comparator (smap-db rsm)))
+
+(defn sset-comparator
+  "The comparator for members of `rss`, matching its file's mode."
+  ^java.util.Comparator [^ReadSortedSet rss]
+  (conversion/db-sorted-comparator (sset-db rss)))
 
 (defn smap-read-cursor
   "Read cursor for `key`, or nil if absent. nil (not storable as a sorted key)
   is never present, so lookups with it return nil instead of throwing."
   [^ReadSortedMap rsm key]
-  (when (some? key)
-    (.getCursor rsm (sorted-key/encode-key key))))
+  (when-let [encoded (smap-lookup-key rsm key)]
+    (.getCursor rsm encoded)))
 
 (defn smap-contains-key?
   "Unsupported keys are absent, including when native/Java maps compare
   themselves with a stored map. Storage failures are not encoding failures."
   [^ReadSortedMap rsm key]
   (let [^bytes encoded (try
-                         (when (some? key) (sorted-key/encode-key key))
+                         (smap-lookup-key rsm key)
                          (catch IllegalArgumentException _ nil))]
     (and (some? encoded) (some? (.getCursor rsm encoded)))))
 
@@ -36,7 +67,7 @@
   "Write cursor for `key`. Creates the key if it doesn't exist, so callers that
   only want to read an existing entry must check `smap-read-cursor` first."
   [^WriteSortedMap wsm key]
-  (.putCursor wsm (sorted-key/encode-key key)))
+  (.putCursor wsm (conversion/db-sorted-key-encode (smap-db wsm) key)))
 
 (defn smap-assoc-value!
   "Encodes `k`, writes value `v` at its cursor. Returns the WriteSortedMap."
@@ -48,8 +79,8 @@
 (defn smap-dissoc-key!
   "Removing nil (never present) is a no-op, like Clojure's sorted-map."
   [^WriteSortedMap wsm k]
-  (when (some? k)
-    (.remove wsm (sorted-key/encode-key k)))
+  (when-let [encoded (smap-lookup-key wsm k)]
+    (.remove wsm encoded))
   wsm)
 
 (defn smap-empty!
@@ -86,19 +117,25 @@
     (decode-key-cursor (.-keyCursor kv))
     (read-from-cursor (.-valueCursor kv))))
 
+(declare smap-seq-from-index)
+
 (defn smap-seq-from
   "Lazy ascending seq of MapEntry pairs starting at the first key >= `key`,
-  using the engine's native O(log n) lower-bound seek. nil if none."
+  using the engine's native O(log n) lower-bound seek. nil if none. A key the
+  file cannot hold (non-string, in a compat file) sorts before every key, so the
+  seq starts at the first entry."
   [^ReadSortedMap rsm read-from-cursor key]
-  (let [it (.iteratorFrom rsm (sorted-key/encode-key key))]
-    (when (.hasNext it)
-      (letfn [(step []
-                (lazy-seq
-                  (when (.hasNext it)
-                    (cons (kvpair->entry (.readKeyValuePair (.next it))
-                                         read-from-cursor)
-                          (step)))))]
-        (step)))))
+  (if-let [encoded (conversion/db-sorted-key-lookup (smap-db rsm) key)]
+    (let [it (.iteratorFrom rsm encoded)]
+      (when (.hasNext it)
+        (letfn [(step []
+                  (lazy-seq
+                    (when (.hasNext it)
+                      (cons (kvpair->entry (.readKeyValuePair (.next it))
+                                           read-from-cursor)
+                            (step)))))]
+          (step))))
+    (smap-seq-from-index rsm read-from-cursor 0)))
 
 (defn smap-nth
   "MapEntry at rank `index` (negative counts from the end), or `not-found` when
@@ -110,9 +147,12 @@
       (kvpair->entry kv read-from-cursor))))
 
 (defn smap-rank
-  "Number of keys strictly less than `key`. O(log n)."
+  "Number of keys strictly less than `key`. O(log n). A key the file cannot hold
+  (non-string, in a compat file) sorts before every key, so its rank is 0."
   [^ReadSortedMap rsm key]
-  (.rank rsm (sorted-key/encode-key key)))
+  (if-let [encoded (conversion/db-sorted-key-lookup (smap-db rsm) key)]
+    (.rank rsm encoded)
+    0))
 
 (defn smap-seq-from-index
   "Lazy ascending seq of MapEntry pairs starting at rank `index` (0-based),
@@ -158,21 +198,22 @@
   "nil (not storable as a sorted member) is never present, so checking for it
   returns false instead of throwing."
   [^ReadSortedSet rss member]
-  (and (some? member)
-       (.contains rss (sorted-key/encode-key member))))
+  (if-let [encoded (sset-lookup-member rss member)]
+    (.contains rss encoded)
+    false))
 
 (defn sset-assoc-value!
   "Adds `member` to the set (no-op if already present). Returns the WriteSortedSet."
   [^WriteSortedSet wss member]
-  (.put wss (sorted-key/encode-key member))
+  (.put wss (conversion/db-sorted-key-encode (sset-db wss) member))
   wss)
 
 (defn sset-disj-value!
   "Removes `member` from the set (no-op if absent, including nil, which is
   never present). Returns the WriteSortedSet."
   [^WriteSortedSet wss member]
-  (when (some? member)
-    (.remove wss (sorted-key/encode-key member)))
+  (when-let [encoded (sset-lookup-member wss member)]
+    (.remove wss encoded))
   wss)
 
 (defn sset-empty!
@@ -205,17 +246,23 @@
                     (cons (member-from-cursor (.next it)) (step)))))]
         (step)))))
 
+(declare sset-seq-from-index)
+
 (defn sset-seq-from
   "Lazy ascending seq of members starting at the first member >= `member`,
-  using the engine's native O(log n) lower-bound seek. nil if none."
+  using the engine's native O(log n) lower-bound seek. nil if none. A member the
+  file cannot hold (non-string, in a compat file) sorts before every member, so
+  the seq starts at the first member."
   [^ReadSortedSet rss member]
-  (let [it (.iteratorFrom rss (sorted-key/encode-key member))]
-    (when (.hasNext it)
-      (letfn [(step []
-                (lazy-seq
-                  (when (.hasNext it)
-                    (cons (member-from-cursor (.next it)) (step)))))]
-        (step)))))
+  (if-let [encoded (conversion/db-sorted-key-lookup (sset-db rss) member)]
+    (let [it (.iteratorFrom rss encoded)]
+      (when (.hasNext it)
+        (letfn [(step []
+                  (lazy-seq
+                    (when (.hasNext it)
+                      (cons (member-from-cursor (.next it)) (step)))))]
+          (step))))
+    (sset-seq-from-index rss 0)))
 
 (defn sset-nth
   "Member at rank `index` (negative counts from the end), or `not-found` when
@@ -227,9 +274,13 @@
       (kvpair->member kv))))
 
 (defn sset-rank
-  "Number of members strictly less than `member`. O(log n)."
+  "Number of members strictly less than `member`. O(log n). A member the file
+  cannot hold (non-string, in a compat file) sorts before every member, so its
+  rank is 0."
   [^ReadSortedSet rss member]
-  (.rank rss (sorted-key/encode-key member)))
+  (if-let [encoded (conversion/db-sorted-key-lookup (sset-db rss) member)]
+    (.rank rss encoded)
+    0))
 
 (defn sset-seq-from-index
   "Lazy ascending seq of members starting at rank `index` (0-based), using the
