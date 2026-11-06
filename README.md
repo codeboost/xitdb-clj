@@ -5,7 +5,7 @@
   <b>Choose your flavor:</b>
   <a href="https://github.com/xit-vcs/xitdb">Zig</a> |
   <a href="https://github.com/xit-vcs/xitdb-java">Java</a> |
-  <a href="https://github.com/codeboost/xitdb-clj">Clojure</a> |
+  Clojure |
   <a href="https://github.com/xit-vcs/xitdb-ts">TypeScript</a> |
   <a href="https://github.com/xit-vcs/xitdb-go">Go</a>
 </p>
