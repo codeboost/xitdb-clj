@@ -49,7 +49,7 @@
 Add the dependency to your project:
 
 ```clojure
-io.github.codeboost/xitdb-clj {:mvn/version "0.7.1"}
+io.github.codeboost/xitdb-clj {:mvn/version "0.7.2"}
 ```
 
 In this example, we create a new database, write some data in a transaction, and read the data afterwards.
