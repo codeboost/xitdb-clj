@@ -102,7 +102,7 @@ Don't use them after a full copy: `materialize` what you need to keep, or read
 it again after the sync. `replicate!` returns whether an update was a full copy.
 
 A full copy brings the source's header along, so the replica switches to the
-source's [mode](README.md#hashing-and-sharing-files-with-other-languages), even
+source's [mode](../README.md#hashing-and-sharing-files-with-other-languages), even
 if it was opened with `:mode`.
 
 ## Interrupted syncs

@@ -1,6 +1,6 @@
 (ns xitdb.replication
   "Keeps a copy of a database (a replica) up to date by sending it only the
-  bytes it is missing. See the README's Replication section."
+  bytes it is missing. See doc/REPLICATION.md."
   (:require
     [clojure.java.io :as io]
     [xitdb.db :as db])
