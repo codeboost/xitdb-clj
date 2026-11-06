@@ -464,7 +464,7 @@ Passing `:mode` for an existing file also checks it against the header, for code
 | Header `clj1`                   | opens in Clojure mode      | opens                      | rejected |
 | Any other header (`0`, `sha1`…) | opens in compat mode       | rejected                   | opens |
 
-`compact` keeps the header, so a compacted database stays in its mode. A full copy during [replication](REPLICATION.md) brings the source's header, so the replica switches to the source's mode, even if it was opened with `:mode`.
+`compact` keeps the header, so a compacted database stays in its mode. A full copy during [replication](doc/REPLICATION.md) brings the source's header, so the replica switches to the source's mode, even if it was opened with `:mode`.
 
 In compat mode, hash map keys and hash set members must be strings, at every depth. Writing anything else throws `IllegalArgumentException` and the transaction leaves the database unchanged; values can still be any supported type. Reading with a non-string key finds nothing (`(:foo m)` is `nil`), and `dissoc` or `disj` of one does nothing. So if a lookup on a file from another language comes back `nil`, check that the key is a string, not a keyword.
 
@@ -541,7 +541,7 @@ Since xitdb files are append-only, replicating them is just copying the bytes th
   (io/copy in out))
 ```
 
-See [REPLICATION.md](REPLICATION.md) for replicating over a network, full copies, interrupted syncs, and the rules for replicas.
+See [doc/REPLICATION.md](doc/REPLICATION.md) for replicating over a network, full copies, interrupted syncs, and the rules for replicas.
 
 ## Thread Safety
 
