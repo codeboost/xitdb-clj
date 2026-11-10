@@ -155,8 +155,10 @@
 
 (deftest interrupted-full-copy-is-recovered-by-the-next-sync
   (doseq [kind [:memory :file]
-          ;; cut before the root header is complete, and one byte before the end
-          cut  [24 dec]]
+          ;; cuts count the 16-byte frame. cut once the engine has begun
+          ;; replacing the replica (past the source's 32 bytes of headers),
+          ;; and one byte before the end
+          cut  [(+ 16 48) dec]]
     (testing (str (name kind) " replica, cut at " (if (fn? cut) "the last byte" cut))
       (with-open [source  (xdb/xit-db :memory)
                   replica (xdb/xit-db (location kind))]
@@ -181,6 +183,29 @@
             (is (pos? (frame-start (update-bytes compacted replica))))
             (sync! compacted replica)
             (is (= {:n 2} (xdb/materialize @replica)))))))))
+
+(deftest full-copy-cut-within-the-headers-leaves-the-replica-untouched
+  ;; the engine holds a full copy's headers (the header and the file size, 32
+  ;; bytes in format version 2) until they have all arrived and only then
+  ;; truncates the replica, so a copy cut before that changes nothing
+  (doseq [kind [:memory :file]]
+    (testing (str (name kind) " replica")
+      (with-open [source  (xdb/xit-db :memory)
+                  replica (xdb/xit-db (location kind))]
+        (reset! source {:n 1})
+        (sync! source replica)
+        (let [state (replication/replica-state replica)]
+          (with-open [compacted (xdb/compact source :memory)]
+            (let [update (update-bytes compacted replica)]
+              (is (zero? (frame-start update)))
+              (is (thrown? Database$EndOfStreamException
+                           (with-open [out (io/output-stream replica)]
+                             (.write out update 0 (+ 16 24)))))
+              (is (= state (replication/replica-state replica)))
+              (is (= {:n 1} (xdb/materialize @replica)))
+              (sync! compacted replica)
+              (is (= (replication/replica-state compacted) (replication/replica-state replica)))
+              (is (= {:n 1} (xdb/materialize @replica))))))))))
 
 (deftest failed-sync-leaves-nothing-to-write-later
   ;; two handles on one replica file: a sync through `a` fails, then one
