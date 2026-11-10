@@ -95,11 +95,12 @@
   `swap!`, so it must be closed on the thread that opened it.
 
   Once the frame has arrived, the bytes go straight to the replica. Bytes that
-  start at the beginning of a database are a full copy, which truncates the
-  replica first. If a write fails or the stream ends early, an update that
-  extends the replica is discarded (see `discard-uncommitted!`), leaving it at
-  its last commit, while a full copy leaves it broken until the next one (see
-  `replica-state`). Closing the stream throws in the second case. An update
+  start at the beginning of a database are a full copy, which the engine holds
+  until the source's headers have arrived and then truncates the replica. If a
+  write fails or the stream ends early, an update that extends the replica is
+  discarded (see `discard-uncommitted!`), leaving it at its last commit, as is
+  a full copy that ends within the headers, while a full copy that ends later
+  leaves it broken until the next one (see `replica-state`). Closing the stream throws in the second case. An update
   the engine refuses, such as one replayed from a stale `replica-state`, never
   touches the replica, so nothing is discarded then either. Nor is anything
   discarded once the engine has begun committing: if that fails, the replica
@@ -208,7 +209,8 @@
   output stream's failure to commit the partial update attached as suppressed.
   `with-open` would throw the latter instead. Unless the update had already
   arrived in full, the replica stays at its last commit, or, if the update was a
-  full copy, is left broken until the next sync (see `replica-state`)."
+  full copy that got past the source's headers, is left broken until the next
+  sync (see `replica-state`)."
   [xdb ^InputStream in]
   (let [result            (volatile! nil)
         ^OutputStream out (updates-output-stream xdb result)]

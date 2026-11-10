@@ -93,11 +93,12 @@ entire source file, replacing the replica. The same happens if the replica can
 no longer be extended, such as when the source is replaced by a compacted copy
 (which is a new file) or restored from an older backup.
 
-A full copy replaces the replica in place: the replica is truncated as the copy
-begins and the new bytes are written over it. While it runs, reads from the
-replica throw. Values read from the replica before it (lazy maps, vectors,
-cursors) hold offsets into the old file, so afterwards they read whatever the
-copy holds there: another value, garbage, or an error, with no way to tell.
+A full copy replaces the replica in place: once the source's header has
+arrived, the replica is truncated and the new bytes are written over it. While
+it runs, reads from the replica throw. Values read from the replica before it
+(lazy maps, vectors, cursors) hold offsets into the old file, so afterwards they
+read whatever the copy holds there: another value, garbage, or an error, with no
+way to tell.
 Don't use them after a full copy: `materialize` what you need to keep, or read
 it again after the sync. `replicate!` returns whether an update was a full copy.
 
@@ -111,10 +112,12 @@ If an incremental sync is interrupted, such as by a dropped connection, closing
 the output stream throws and the replica stays at its last commit. The next
 sync discards whatever was partially written.
 
-If a full copy is interrupted, the replica can't be read until a sync succeeds.
+If a full copy is interrupted before the source's header has arrived (its first
+few dozen bytes), the replica is untouched and stays at its last commit.
+Otherwise, the replica can't be read until a sync succeeds.
 `replica-state` describes it as empty (`{:committed-size 0 :checksum 0}`), so
-the next sync sends a full copy again. If the process restarts first, the file
-won't open: delete it and sync again, since a replica is only a copy.
+the next sync sends a full copy again. This holds even if the process restarts
+first: the file still opens, and the next sync replaces it.
 
 ## Staying readable during a full copy
 
